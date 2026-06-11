@@ -146,7 +146,7 @@ app/api/chat/[username]/route.ts:
 
 For each turn, wwxd loops the personas in order:
 
-1. **Gate.** A cheap Haiku call asks "given the conversation so far, do you actually have anything to add?" YES / NO with a reason. First speaker skips the gate.
+1. **Gate.** A cheap call (whichever model you set as `GATE_MODEL`, defaults to your provider's small/fast tier) asks "given the conversation so far, do you actually have anything to add?" YES / NO with a reason. First speaker skips the gate.
 2. **Speak.** If YES, retrieve their chunks (grounded) or go from memory (prior-only). The prompt includes every prior speaker's contribution so they can agree, push back, or build by name.
 3. **Pass.** If NO, surface a `(passed)` chip with the reason. No charge for a turn nobody spoke on.
 
@@ -154,11 +154,13 @@ See `lib/gate.ts` and `app/api/roundtable/route.ts`.
 
 ## What it costs
 
-- **Apify** — $0.25 to $0.40 per 1k tweets. A latest pull is a few dollars. A `--deep` pull of a 10-year account is $10 to $30. Skip if you only use prior-only personas.
-- **OpenAI embeddings** — $0.02 per 1M tokens. A 5k-tweet corpus is about $0.01 to embed.
-- **Anthropic chat** — static persona prompt is cached, so you mostly pay for retrieval + response. On Opus, $0.05 to $0.15 per turn. A 4-persona roundtable turn is roughly 4×.
-- **Prior-only personas** — zero ingestion cost. Pay only per turn.
-- **Ollama / vLLM / LMStudio** — free, except for the electricity bill.
+Costs depend on the providers you pick. Rough ballpark:
+
+- **Tweet ingestion** (Apify) — $0.25 to $0.40 per 1k tweets. A latest pull is a few dollars. A `--deep` pull of a 10-year account is $10 to $30. Skip entirely if you only use prior-only personas.
+- **Embeddings** — typically $0.02 per 1M tokens with OpenAI's small embedding model. A 5k-tweet corpus is about $0.01 to embed. Free if you run embeddings locally (Ollama, vLLM, etc.).
+- **Chat (hosted providers)** — the static persona prompt is cached when the provider supports it (Anthropic and OpenAI both do), so each turn mostly pays for retrieval + response. On a frontier-tier model, expect cents per turn; on a mid-tier model, fractions of a cent. A 4-persona roundtable turn is roughly 4× a solo turn.
+- **Chat (local)** — Ollama, vLLM, LMStudio, or any openai-compatible backend you stand up yourself: free, minus electricity. Quality scales with the model you run.
+- **Prior-only personas** — zero ingestion cost in any setup. You only pay (or only burn local compute) per chat turn.
 
 ## Caveats worth reading
 
