@@ -1,0 +1,181 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* ===== wwxd design tokens ===== */
+:root {
+  /* paper & ink */
+  --ink: #16140d;
+  --ink-2: #3a382f;
+  --ink-soft: #6f6e62;
+  --ink-faint: #a4a294;
+  --line: #e8e5da;
+  --line-2: #f0eee6;
+  --paper: #ffffff;
+  --paper-2: #f6f4ed;
+  --rail: #faf9f5;
+  --dark: #15140f;
+
+  /* character palette */
+  --c-orange: #f1592b;
+  --c-green: #17a44e;
+  --c-blue: #2e6bf6;
+  --c-purple: #7b5bff;
+  --c-yellow: #fbbf24;
+  --c-pink: #ff5c8a;
+  --c-teal: #13b7a6;
+  --c-red: #ef4444;
+
+  /* accent — reassigned at runtime per active persona/room */
+  --accent: #2e6bf6;
+  --accent-soft: #e7eefe;
+
+  /* radii */
+  --r: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --pill: 999px;
+
+  /* shadows */
+  --shadow: 0 1px 2px rgba(20, 18, 10, 0.05), 0 14px 32px rgba(20, 18, 10, 0.08);
+  --shadow-sm: 0 1px 2px rgba(20, 18, 10, 0.06), 0 6px 16px rgba(20, 18, 10, 0.07);
+  --shadow-lg: 0 2px 4px rgba(20, 18, 10, 0.06), 0 30px 60px rgba(20, 18, 10, 0.14);
+
+  /* legacy aliases so existing components keep working during migration */
+  --background: var(--paper);
+  --foreground: var(--ink);
+}
+
+/* expose tokens to Tailwind utilities (text-ink, bg-paper, etc.) */
+@theme inline {
+  --color-background: var(--paper);
+  --color-foreground: var(--ink);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-rail: var(--rail);
+  --color-dark: var(--dark);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-c-orange: var(--c-orange);
+  --color-c-green: var(--c-green);
+  --color-c-blue: var(--c-blue);
+  --color-c-purple: var(--c-purple);
+  --color-c-yellow: var(--c-yellow);
+  --color-c-pink: var(--c-pink);
+  --color-c-teal: var(--c-teal);
+  --color-c-red: var(--c-red);
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-sans: var(--font-body);
+  --radius-md: var(--r);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-pill: var(--pill);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display), system-ui, sans-serif;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  font-weight: 800;
+  margin: 0;
+}
+
+/* ===== mascot animations ===== */
+@keyframes wwxd-idlebob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes wwxd-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wwxd-tilt {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-3deg);
+  }
+}
+
+/** Inline span around a PersonaAvatar that should idle-bob. */
+.wwxd-bob {
+  display: inline-flex;
+  line-height: 0;
+  animation: wwxd-idlebob 3.4s ease-in-out infinite;
+}
+.wwxd-bob[data-phase='1'] {
+  animation-duration: 3.9s;
+  animation-delay: -0.6s;
+}
+.wwxd-bob[data-phase='2'] {
+  animation-duration: 4.3s;
+  animation-delay: -1.2s;
+}
+.wwxd-bob[data-phase='3'] {
+  animation-duration: 3.7s;
+  animation-delay: -1.8s;
+}
+
+/** Wrapper for grouped avatars where the whole stack pops in once. */
+.wwxd-pop {
+  animation: wwxd-pop 0.34s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/** Slight rocking tilt on hover, used by the brand mark. */
+.wwxd-tilt-on-hover:hover {
+  animation: wwxd-tilt 0.6s ease-in-out;
+}
+
+/**
+ * Landing-page hero name size. Lives as a CSS rule (not inline style) so the
+ * fit-to-width JS can clear `style.fontSize = ''` and have the size return
+ * to this baseline.
+ */
+.wwxd-xname-size {
+  font-size: clamp(34px, 9.5vw, 104px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
