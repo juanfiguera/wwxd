@@ -19,7 +19,7 @@
   <a href="#contributing">Contribute</a>
 </p>
 
-> [!IMPORTANT]
+> [!WARNING]
 > **wwxd generates AI _impressions_ of real people.** The personas aren't the people they reference, aren't endorsed by them, and will sometimes misrepresent their views. Don't quote outputs. Don't take advice from them. Treat the whole thing as well-researched fan fiction.
 
 ## Get going
