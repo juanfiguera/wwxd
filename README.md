@@ -9,11 +9,20 @@
 <p align="center">Type a name. Get a chat with that person. Or as close as a language model can get.</p>
 
 <p align="center">
-  <a href="./LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-16140d?style=flat-square&labelColor=f6f4ed&color=f6f4ed" /></a>
-  <a href="https://nextjs.org"><img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-16140d?style=flat-square&labelColor=f6f4ed&color=f6f4ed" /></a>
-  <a href="https://react.dev"><img alt="React 19" src="https://img.shields.io/badge/React-19-16140d?style=flat-square&labelColor=f6f4ed&color=f6f4ed" /></a>
-  <a href="#tests--evals"><img alt="473 tests passing" src="https://img.shields.io/badge/tests-473_passing-16140d?style=flat-square&labelColor=f6f4ed&color=f6f4ed" /></a>
-  <a href="#contributing"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-16140d?style=flat-square&labelColor=f6f4ed&color=f6f4ed" /></a>
+  <a href="./LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-f1592b?style=for-the-badge&labelColor=f1592b" /></a>
+  <a href="https://nextjs.org"><img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-2e6bf6?style=for-the-badge&labelColor=2e6bf6" /></a>
+  <a href="https://react.dev"><img alt="React 19" src="https://img.shields.io/badge/React-19-13b7a6?style=for-the-badge&labelColor=13b7a6" /></a>
+  <a href="#tests--evals"><img alt="473 tests passing" src="https://img.shields.io/badge/tests-473_passing-17a44e?style=for-the-badge&labelColor=17a44e" /></a>
+  <a href="#contributing"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-ff5c8a?style=for-the-badge&labelColor=ff5c8a" /></a>
+</p>
+
+<p align="center">
+  <a href="#two-ways-to-create-a-persona"><strong>Modes</strong></a> ·
+  <a href="#quick-start"><strong>Quick start</strong></a> ·
+  <a href="#bring-your-own-model"><strong>Providers</strong></a> ·
+  <a href="#how-the-roundtable-works"><strong>Roundtable</strong></a> ·
+  <a href="#what-it-costs"><strong>Costs</strong></a> ·
+  <a href="#contributing"><strong>Contribute</strong></a>
 </p>
 
 Steve Jobs on AI agents. Paul Graham on hiring your first engineer. Marcus Aurelius on the email you can't stop drafting. The same machine answers all three, and it'll cite its sources when it has them.
