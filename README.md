@@ -45,7 +45,7 @@ Steve Jobs on AI agents. Paul Graham on hiring your first engineer. Marcus Aurel
 **Two modes for any persona:**
 
 - **Grounded** — feed wwxd their writing (tweets via Apify, essays from URLs/RSS/sitemap, YouTube transcripts) and replies link back to specific chunks with `↗`. You're hearing a synthesis of what they actually wrote.
-- **Prior-only** — just type a name. wwxd figures out who you mean, stores a stub, and chats from the model's training knowledge. No corpus needed. Perfect for historical figures and anyone you can't ingest.
+- **Prior-only** — just type a name. wwxd figures out who you mean, then chats from the model's memory of that person. No corpus needed. Perfect for historical figures and anyone you can't ingest.
 
 Both share the chat surface. Grounded personas wear a `CITED` pill. Prior-only personas read "from memory".
 
