@@ -8,10 +8,6 @@ import { AddPersona } from '@/app/components/add-persona';
 import { EmptyHome } from '@/app/components/empty-home';
 import { GroupsSection } from '@/app/components/groups-section';
 import { PersonaList, type PersonaSummary } from '@/app/components/persona-list';
-import {
-  ConversationsSection,
-  type RecentConversation,
-} from '@/app/components/conversations-section';
 
 async function listPersonas(): Promise<PersonaSummary[]> {
   const dir = resolve(process.cwd(), 'data');
@@ -57,39 +53,17 @@ async function listPersonas(): Promise<PersonaSummary[]> {
   return personas.sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
-function enrichConversation(
-  conv: {
-    id: string;
-    kind: 'solo' | 'roundtable';
-    updatedAt: string;
-    messageCount: number;
-    participants: string[];
-  },
-  personas: PersonaSummary[],
-): RecentConversation {
-  const participants = conv.participants.map((u) => ({
-    username: u,
-    displayName: personas.find((p) => p.username === u)?.displayName ?? u,
-  }));
-  return {
-    id: conv.id,
-    kind: conv.kind,
-    updatedAt: conv.updatedAt,
-    messageCount: conv.messageCount,
-    participants,
-  };
-}
-
 export default async function HomePage() {
   const [personas, groupsRaw] = await Promise.all([listPersonas(), listGroups()]);
-  const rawConversations = listConversations();
 
   // For each group, attach the most recent conversation id matching its
   // lineup so clicking the group resumes that conversation instead of
-  // forking a new one. Mirrors the same logic in chat-rail.tsx.
+  // forking a new one. Mirrors the same logic in chat-rail.tsx. The home
+  // page no longer renders a "Recent conversations" section — the rail's
+  // Recent + Groups sections are the canonical recents surface.
   const sortedKey = (us: string[]): string => [...us].sort().join(',');
   const latestByLineup = new Map<string, string>();
-  for (const c of rawConversations) {
+  for (const c of listConversations()) {
     if (c.kind !== 'roundtable' || c.messageCount === 0) continue;
     const k = sortedKey(c.participants);
     if (!latestByLineup.has(k)) latestByLineup.set(k, c.id);
@@ -98,24 +72,6 @@ export default async function HomePage() {
     ...g,
     latestConversationId: latestByLineup.get(sortedKey(g.personas)),
   }));
-
-  // Collapse roundtables with identical lineups so the home page's "Recent
-  // conversations" list shows one entry per unique lineup (the latest one).
-  // Older sessions with the same participant set still exist in the DB but
-  // would otherwise create the "same row repeated" confusion the user flagged.
-  // listConversations() comes back sorted by updatedAt desc, so we keep the
-  // first row seen for each lineup and drop the rest.
-  const seenLineup = new Set<string>();
-  const conversations = rawConversations
-    .filter((c) => c.messageCount > 0)
-    .filter((c) => {
-      if (c.kind !== 'roundtable') return true;
-      const k = sortedKey(c.participants);
-      if (seenLineup.has(k)) return false;
-      seenLineup.add(k);
-      return true;
-    })
-    .map((c) => enrichConversation(c, personas));
 
   const isFirstRun = personas.length === 0;
 
@@ -151,8 +107,6 @@ export default async function HomePage() {
             <div className="mb-8">
               <AddPersona />
             </div>
-
-            <ConversationsSection conversations={conversations} />
 
             <GroupsSection groups={groups} personas={personas} />
 
