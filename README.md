@@ -2,17 +2,19 @@
   <img src=".github/assets/banner.gif" alt="wwxd — Chat with an AI impression of anyone. Then drop a few in a room together and let them argue it out." width="100%" />
 </p>
 
-# wwxd
+<h1 align="center">wwxd</h1>
 
-**what would x do?**
+<p align="center"><strong>what would x do?</strong></p>
 
-Type a name. Get a chat with that person. Or as close as a language model can get.
+<p align="center">Type a name. Get a chat with that person. Or as close as a language model can get.</p>
 
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Next.js 16](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
-[![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev)
-[![Tests](https://img.shields.io/badge/tests-473%20passing-success)](#tests--evals)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
+<p align="center">
+  <a href="./LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-16140d?style=flat-square&labelColor=f6f4ed&color=f6f4ed" /></a>
+  <a href="https://nextjs.org"><img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-16140d?style=flat-square&labelColor=f6f4ed&color=f6f4ed" /></a>
+  <a href="https://react.dev"><img alt="React 19" src="https://img.shields.io/badge/React-19-16140d?style=flat-square&labelColor=f6f4ed&color=f6f4ed" /></a>
+  <a href="#tests--evals"><img alt="473 tests passing" src="https://img.shields.io/badge/tests-473_passing-16140d?style=flat-square&labelColor=f6f4ed&color=f6f4ed" /></a>
+  <a href="#contributing"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-16140d?style=flat-square&labelColor=f6f4ed&color=f6f4ed" /></a>
+</p>
 
 Steve Jobs on AI agents. Paul Graham on hiring your first engineer. Marcus Aurelius on the email you can't stop drafting. The same machine answers all three, and it'll cite its sources when it has them.
 
