@@ -8,11 +8,9 @@
 </p>
 
 <p align="center">
-  <a href="./LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-f1592b?style=flat&labelColor=f1592b" /></a>
-  <a href="https://nextjs.org"><img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-2e6bf6?style=flat&labelColor=2e6bf6" /></a>
-  <a href="https://react.dev"><img alt="React 19" src="https://img.shields.io/badge/React-19-13b7a6?style=flat&labelColor=13b7a6" /></a>
-  <a href="#tests--evals"><img alt="473 tests passing" src="https://img.shields.io/badge/tests-473_passing-17a44e?style=flat&labelColor=17a44e" /></a>
-  <a href="#contributing"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-ff5c8a?style=flat&labelColor=ff5c8a" /></a>
+  <a href="./LICENSE">
+    <img alt="Open-source · Self-hosted" src="https://img.shields.io/badge/Open%20source-Self%20hosted-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" />
+  </a>
 </p>
 
 <p align="center">
