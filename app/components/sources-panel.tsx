@@ -9,7 +9,17 @@ export type RetrievedTweetMeta = {
   title?: string;
 };
 
-const CITATION_RE = /\[(?:tweet|essay|transcript):([\w-]+)\]/g;
+// Strict ID shape: only word chars + hyphens, the format the model is taught
+// to emit. Anything that doesn't match this is treated as a malformed marker
+// and stripped from the rendered text so it doesn't leak as raw "[tweet:…]"
+// gibberish.
+const CLEAN_ID_RE = /^[\w-]+$/;
+// Tolerant outer match: anything that opens with [kind: and closes with ].
+// We then validate the captured inner content separately. This catches the
+// real-world failure mode where a model emits something like
+// "[tweet:1851205852984377643... skip]" mid-sentence — the strict pattern
+// would skip it, leaving the gibberish visible to the user.
+const CITATION_RE = /\[(?:tweet|essay|transcript):([^\]]+)\]/g;
 
 export function renderCitationMarkers(
   text: string,
@@ -17,7 +27,12 @@ export function renderCitationMarkers(
   retrieved: RetrievedTweetMeta[],
 ): string {
   const urlById = new Map(retrieved.map((t) => [t.id, t.url]));
-  return text.replace(CITATION_RE, (_, id) => {
+  return text.replace(CITATION_RE, (_match, inner: string) => {
+    const id = inner.trim();
+    // If the inner content isn't a clean id (numeric/word/hyphen only), the
+    // model hallucinated or wrapped extra prose inside the marker. Strip
+    // the whole marker instead of forwarding malformed output to the user.
+    if (!CLEAN_ID_RE.test(id)) return '';
     const url = urlById.get(id) ?? `https://x.com/${defaultUsername}/status/${id}`;
     return ` [↗](${url})`;
   });
@@ -92,7 +107,9 @@ export function extractCitedIds(text: string): Set<string> {
   const re = new RegExp(CITATION_RE.source, 'g');
   let match: RegExpExecArray | null;
   while ((match = re.exec(text)) !== null) {
-    set.add(match[1]);
+    const id = match[1].trim();
+    // Match the rendering behaviour: only valid clean ids count as citations.
+    if (CLEAN_ID_RE.test(id)) set.add(id);
   }
   return set;
 }

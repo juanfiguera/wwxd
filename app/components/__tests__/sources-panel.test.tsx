@@ -26,6 +26,19 @@ describe('extractCitedIds', () => {
   it('de-duplicates repeated ids', () => {
     expect(extractCitedIds('[tweet:1] and [tweet:1] again')).toEqual(new Set(['1']));
   });
+
+  it('ignores malformed citations with prose or ellipses inside the brackets', () => {
+    // Real-world failure: the model hallucinated and emitted
+    // "[tweet:1851205852984377643... skip]" mid-sentence. We don't want to
+    // surface that as a citation because the id isn't real.
+    expect(
+      extractCitedIds('see [tweet:1851205852984377643... skip] and [tweet:1234]'),
+    ).toEqual(new Set(['1234']));
+  });
+
+  it('tolerates whitespace inside the brackets when the trimmed id is clean', () => {
+    expect(extractCitedIds('see [tweet: 1234 ]')).toEqual(new Set(['1234']));
+  });
 });
 
 describe('renderCitationMarkers', () => {
@@ -63,6 +76,35 @@ describe('renderCitationMarkers', () => {
       ],
     );
     expect(out).toContain('paulgraham.com');
+  });
+
+  it('strips malformed citation markers instead of leaking them as text', () => {
+    // The model sometimes emits a marker that contains prose or an
+    // ellipsis where an id should be. Without the tolerance + validation,
+    // the strict regex would skip it and the gibberish would surface.
+    const out = renderCitationMarkers(
+      'see [tweet:1851205852984377643... skip] right here',
+      'paulg',
+      [],
+    );
+    // Marker is gone — no leftover bracket content
+    expect(out).not.toContain('[tweet:');
+    expect(out).not.toContain('skip');
+    // The surrounding prose is preserved
+    expect(out).toContain('see');
+    expect(out).toContain('right here');
+  });
+
+  it('still strips when surrounded by valid citations', () => {
+    const out = renderCitationMarkers(
+      'first [tweet:123] then [tweet:abc def] then [tweet:456]',
+      'paulg',
+      [],
+    );
+    expect(out).toContain('https://x.com/paulg/status/123');
+    expect(out).toContain('https://x.com/paulg/status/456');
+    expect(out).not.toContain('abc def');
+    expect(out).not.toContain('[tweet:abc');
   });
 });
 
