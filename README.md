@@ -72,18 +72,24 @@ Save a lineup as a **Group** ("Board of Directors", "The Stoa") and one-click it
 
 Edit `.env.local` and point wwxd at whoever you trust. Anthropic, OpenAI, Ollama running locally, anything OpenAI-compatible (OpenRouter, vLLM, LMStudio).
 
+The file is split in two: an **API KEYS** block at the top, then provider config below. Drop the keys you have, leave the rest blank, and tweak the providers if the defaults don't fit. Common path:
+
 ```bash
-LLM_PROVIDER=anthropic              # anthropic | openai | openai-compatible
-ANTHROPIC_API_KEY=sk-ant-...
+# 1. Drop your keys
+ANTHROPIC_API_KEY=sk-ant-...        # for chat
+OPENAI_API_KEY=sk-...               # for embeddings (powers citations)
 
-# Running Ollama? Two lines:
-# LLM_PROVIDER=openai-compatible
-# LLM_BASE_URL=http://localhost:11434/v1
-# LLM_API_KEY=ollama
-
-# Embeddings power citations in grounded mode (optional, falls back to BM25)
+# 2. Providers (these are the defaults — change if you want)
+LLM_PROVIDER=anthropic
 EMBEDDING_PROVIDER=openai
-OPENAI_API_KEY=sk-...
+```
+
+All local with Ollama? Skip the keys above and use:
+
+```bash
+LLM_PROVIDER=openai-compatible
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_API_KEY=ollama
 ```
 
 Full env reference: [`.env.example`](./.env.example).
