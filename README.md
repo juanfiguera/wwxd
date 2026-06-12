@@ -1,12 +1,12 @@
+<p align="center">
+  <img src=".github/assets/banner.gif" alt="wwxd — Chat with an AI impression of anyone. Then drop a few in a room together and let them argue it out." width="100%" />
+</p>
+
 # wwxd
 
 **what would x do?**
 
 Type a name. Get a chat with that person. Or as close as a language model can get.
-
-<p align="center">
-  <img src=".github/assets/banner.gif" alt="wwxd — Chat with an AI impression of anyone. Then drop a few in a room together and let them argue it out." width="100%" />
-</p>
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
