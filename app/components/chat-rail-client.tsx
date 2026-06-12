@@ -27,6 +27,13 @@ export type RailGroup = {
   /** Display names parallel to `personas`. Used in hover tooltip. */
   personaDisplayNames?: string[];
   accent: string;
+  /**
+   * If a roundtable conversation with this exact lineup already exists,
+   * clicking the group resumes the most recent one rather than forking a
+   * fresh conversation. New conversations are explicit via "+ New
+   * conversation".
+   */
+  latestConversationId?: string;
 };
 
 export type RailConv = {
@@ -94,12 +101,17 @@ function SectionLabel({ label, count }: { label: string; count: number }) {
 }
 
 function groupHref(g: RailGroup): string {
-  const qs = new URLSearchParams({
+  const params = new URLSearchParams({
     personas: g.personas.join(','),
     group: g.id,
     mode: 'roundtable',
-  }).toString();
-  return `/compare?${qs}`;
+  });
+  // Resume the most recent conversation with this lineup (if any) instead
+  // of forking a new one. Prevents the rail from accumulating identical-
+  // looking "AI Lounge" entries every time the user starts chatting from
+  // the same group.
+  if (g.latestConversationId) params.set('conversation', g.latestConversationId);
+  return `/compare?${params.toString()}`;
 }
 
 function PlainRow({

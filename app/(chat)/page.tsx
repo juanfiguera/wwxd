@@ -81,10 +81,26 @@ function enrichConversation(
 }
 
 export default async function HomePage() {
-  const [personas, groups] = await Promise.all([listPersonas(), listGroups()]);
-  const conversations = listConversations()
+  const [personas, groupsRaw] = await Promise.all([listPersonas(), listGroups()]);
+  const rawConversations = listConversations();
+  const conversations = rawConversations
     .filter((c) => c.messageCount > 0)
     .map((c) => enrichConversation(c, personas));
+
+  // For each group, attach the most recent conversation id matching its
+  // lineup so clicking the group resumes that conversation instead of
+  // forking a new one. Mirrors the same logic in chat-rail.tsx.
+  const sortedKey = (us: string[]): string => [...us].sort().join(',');
+  const latestByLineup = new Map<string, string>();
+  for (const c of rawConversations) {
+    if (c.kind !== 'roundtable' || c.messageCount === 0) continue;
+    const k = sortedKey(c.participants);
+    if (!latestByLineup.has(k)) latestByLineup.set(k, c.id);
+  }
+  const groups = groupsRaw.map((g) => ({
+    ...g,
+    latestConversationId: latestByLineup.get(sortedKey(g.personas)),
+  }));
 
   const isFirstRun = personas.length === 0;
 

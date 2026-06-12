@@ -81,21 +81,24 @@ describe('GroupsSection', () => {
     );
   });
 
-  it('on confirm + 204, calls fetch DELETE and router.refresh', async () => {
+  it('two-click delete: first click arms, second click fires DELETE + router.refresh', async () => {
     render(<GroupsSection groups={[makeGroup({})]} personas={personas} />);
+    // First click arms the row — no fetch yet
     fireEvent.click(screen.getByRole('button', { name: /delete founders/i }));
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    // Button now reads "delete?" (armed state)
+    const armed = screen.getByRole('button', { name: /click again to delete founders/i });
+    fireEvent.click(armed);
     // Let microtasks resolve.
     await Promise.resolve();
     await Promise.resolve();
-    expect(globalThis.confirm).toHaveBeenCalled();
     expect(globalThis.fetch).toHaveBeenCalledWith('/api/groups/g1', {
       method: 'DELETE',
     });
     expect(routerRefresh).toHaveBeenCalled();
   });
 
-  it('on confirm declined, neither fetches nor refreshes', () => {
-    (globalThis.confirm as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  it('a single click does not delete the group', () => {
     render(<GroupsSection groups={[makeGroup({})]} personas={personas} />);
     fireEvent.click(screen.getByRole('button', { name: /delete founders/i }));
     expect(globalThis.fetch).not.toHaveBeenCalled();

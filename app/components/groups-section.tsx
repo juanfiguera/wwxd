@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PersonaAvatar } from './persona-avatar';
 import type { PersonaSummary } from './persona-list';
 import { personaStyle, tintHex } from '@/lib/persona-styling';
@@ -13,6 +13,12 @@ export type GroupSummary = {
   personas: string[];
   createdAt: string;
   updatedAt: string;
+  /**
+   * If a roundtable conversation with this exact lineup already exists,
+   * clicking the group resumes the most recent one. Server-built by the
+   * home page from listConversations() output.
+   */
+  latestConversationId?: string;
 };
 
 export function GroupsSection({
@@ -24,10 +30,31 @@ export function GroupsSection({
 }) {
   const router = useRouter();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Two-click delete: first click arms (red icon, "click again to confirm"),
+  // second click within 3s actually deletes. Matches the rail's pattern, no
+  // browser dialog.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nameByUsername = new Map(personas.map((p) => [p.username, p.displayName]));
 
-  async function onDelete(id: string, name: string) {
-    if (!confirm(`Delete group "${name}"? This won't touch any personas or chat history.`)) return;
+  useEffect(() => {
+    return () => {
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    };
+  }, []);
+
+  async function onDelete(id: string) {
+    if (deletingId) return;
+    if (confirmingId !== id) {
+      setConfirmingId(id);
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = setTimeout(() => {
+        setConfirmingId((curr) => (curr === id ? null : curr));
+      }, 3000);
+      return;
+    }
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    setConfirmingId(null);
     setDeletingId(id);
     try {
       const res = await fetch(`/api/groups/${id}`, { method: 'DELETE' });
@@ -52,11 +79,15 @@ export function GroupsSection({
           }));
           const missing = members.filter((m) => !m.displayName);
           const found = members.filter((m) => m.displayName);
-          const qs = new URLSearchParams({
+          const qsParams = new URLSearchParams({
             personas: g.personas.join(','),
             group: g.id,
             mode: 'roundtable',
-          }).toString();
+          });
+          if (g.latestConversationId) {
+            qsParams.set('conversation', g.latestConversationId);
+          }
+          const qs = qsParams.toString();
           const memberPreview = g.personas.slice(0, 4);
           return (
             <li
@@ -106,12 +137,29 @@ export function GroupsSection({
                 </div>
               </Link>
               <button
-                onClick={() => onDelete(g.id, g.name)}
+                onClick={() => onDelete(g.id)}
                 disabled={deletingId === g.id}
-                aria-label={`Delete ${g.name}`}
-                className="shrink-0 rounded-full p-1.5 text-xs text-[var(--ink-soft)] hover:bg-[var(--paper-2)] hover:text-[var(--ink)] disabled:opacity-50"
+                aria-label={
+                  confirmingId === g.id
+                    ? `Click again to delete ${g.name}`
+                    : `Delete ${g.name}`
+                }
+                title={
+                  confirmingId === g.id
+                    ? `Click again to delete ${g.name}`
+                    : `Delete ${g.name}`
+                }
+                className={
+                  confirmingId === g.id
+                    ? 'shrink-0 rounded-full bg-red-600 px-2 py-1 text-xs font-bold text-white transition disabled:opacity-50'
+                    : 'shrink-0 rounded-full p-1.5 text-xs text-[var(--ink-soft)] transition hover:bg-[var(--paper-2)] hover:text-red-600 disabled:opacity-50'
+                }
               >
-                {deletingId === g.id ? '...' : '✕'}
+                {deletingId === g.id
+                  ? '...'
+                  : confirmingId === g.id
+                    ? 'delete?'
+                    : '✕'}
               </button>
             </li>
           );

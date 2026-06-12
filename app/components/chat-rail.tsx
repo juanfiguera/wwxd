@@ -53,6 +53,20 @@ export async function ChatRail() {
 
   const personaByUsername = new Map(personas.map((p) => [p.username, p]));
 
+  // For each saved group, find the most recent roundtable conversation whose
+  // current active participants exactly match the group's lineup. Clicking
+  // the group in the rail will resume that conversation instead of always
+  // forking a fresh one — that's the fix for the "two AI Lounge rows that
+  // look identical" duplication problem. New conversations still happen
+  // explicitly via "+ New conversation" at the top of the rail.
+  const sortedKey = (us: string[]): string => [...us].sort().join(',');
+  const latestByLineup = new Map<string, string>(); // sortedKey → conversation id
+  for (const c of conversations) {
+    if (c.kind !== 'roundtable' || c.messageCount === 0) continue;
+    const k = sortedKey(c.participants);
+    if (!latestByLineup.has(k)) latestByLineup.set(k, c.id);
+  }
+
   const groups: RailGroup[] = groupsRaw.map((g) => ({
     id: g.id,
     name: g.name,
@@ -61,6 +75,9 @@ export async function ChatRail() {
       (u) => personaByUsername.get(u)?.displayName ?? u,
     ),
     accent: g.personas[0] ? personaStyle(g.personas[0]).color : '#2e6bf6',
+    // Latest conversation id with this group's lineup (if any). The rail's
+    // client picks this up to route to /compare?...&conversation=<id>.
+    latestConversationId: latestByLineup.get(sortedKey(g.personas)),
   }));
 
   // Map sorted-persona-set → saved group, so a roundtable conversation that
@@ -69,6 +86,14 @@ export async function ChatRail() {
     groupsRaw.map((g) => [[...g.personas].sort().join(','), g]),
   );
 
+  // Roundtable conversations whose lineup matches a saved group collapse
+  // into ONE row per group — the latest conversation. The "Groups" rail
+  // section already shows the saved lineup itself with its own latest-
+  // conversation link, so showing every past chat with that lineup in the
+  // recents would just create the "two AI Lounge rows that look identical"
+  // confusion the user flagged. We surface the most recent one (which is
+  // what clicking the group will resume) and drop the rest.
+  const seenLatestForLineup = new Set<string>();
   const recent: RailConv[] = conversations
     .filter((c) => c.messageCount > 0)
     .map((c): RailConv | null => {
@@ -92,8 +117,14 @@ export async function ChatRail() {
         .map((u) => personaByUsername.get(u))
         .filter((p): p is PersonaLite => Boolean(p));
       if (resolved.length === 0) return null;
-      const sortedKey = [...c.participants].sort().join(',');
-      const matchedGroup = groupBySortedKey.get(sortedKey);
+      const lineupKey = [...c.participants].sort().join(',');
+      const matchedGroup = groupBySortedKey.get(lineupKey);
+      if (matchedGroup) {
+        // listConversations() comes back sorted by updatedAt desc, so the
+        // first row we see for a given lineup is the latest one.
+        if (seenLatestForLineup.has(lineupKey)) return null;
+        seenLatestForLineup.add(lineupKey);
+      }
       return {
         kind: matchedGroup ? 'group' : 'roundtable',
         key: c.id,
