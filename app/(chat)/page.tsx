@@ -83,9 +83,6 @@ function enrichConversation(
 export default async function HomePage() {
   const [personas, groupsRaw] = await Promise.all([listPersonas(), listGroups()]);
   const rawConversations = listConversations();
-  const conversations = rawConversations
-    .filter((c) => c.messageCount > 0)
-    .map((c) => enrichConversation(c, personas));
 
   // For each group, attach the most recent conversation id matching its
   // lineup so clicking the group resumes that conversation instead of
@@ -101,6 +98,24 @@ export default async function HomePage() {
     ...g,
     latestConversationId: latestByLineup.get(sortedKey(g.personas)),
   }));
+
+  // Collapse roundtables with identical lineups so the home page's "Recent
+  // conversations" list shows one entry per unique lineup (the latest one).
+  // Older sessions with the same participant set still exist in the DB but
+  // would otherwise create the "same row repeated" confusion the user flagged.
+  // listConversations() comes back sorted by updatedAt desc, so we keep the
+  // first row seen for each lineup and drop the rest.
+  const seenLineup = new Set<string>();
+  const conversations = rawConversations
+    .filter((c) => c.messageCount > 0)
+    .filter((c) => {
+      if (c.kind !== 'roundtable') return true;
+      const k = sortedKey(c.participants);
+      if (seenLineup.has(k)) return false;
+      seenLineup.add(k);
+      return true;
+    })
+    .map((c) => enrichConversation(c, personas));
 
   const isFirstRun = personas.length === 0;
 
