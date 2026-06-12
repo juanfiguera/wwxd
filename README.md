@@ -102,13 +102,15 @@ Code: `lib/gate.ts` and `app/api/roundtable/route.ts`.
 
 ## What it costs
 
-Depends on which providers you pick. Ballpark:
+Depends on which providers you pick. Rough ballpark:
 
-- **Tweet ingestion (Apify)** — $0.25 to $0.40 per 1k tweets. Latest pull is a few dollars; deep pulls of a 10-year account are $10 to $30. Skip if you only use prior-only personas.
-- **Embeddings** — about $0.02 per 1M tokens on OpenAI's small embedding model. A 5k-tweet corpus is around $0.01. Free if you run them locally.
-- **Chat (hosted)** — the persona prompt is cached, so each turn mostly pays for retrieval + response. Cents per turn on a frontier model, fractions of a cent on a mid-tier one. A 4-persona roundtable turn is roughly 4× a solo turn.
-- **Chat (local)** — Ollama, vLLM, LMStudio: free. Quality scales with the model you run.
-- **Prior-only personas** — zero ingestion cost. Pay only per turn.
+| | Cost | Notes |
+| --- | --- | --- |
+| **Tweet ingestion (Apify)** | $0.25 to $0.40 per 1k tweets | Latest pull = a few dollars. Deep pulls of a 10-year account = $10 to $30. Skip if you only use prior-only personas. |
+| **Embeddings** | $0.02 per 1M tokens (OpenAI small) | A 5k-tweet corpus is about $0.01. Free if you run them locally. |
+| **Chat (hosted)** | Cents/turn on frontier-tier, fractions on mid-tier | Persona prompt is cached, so each turn mostly pays for retrieval + response. A 4-persona roundtable turn is roughly 4× a solo turn. |
+| **Chat (local)** | Free | Ollama, vLLM, LMStudio. Quality scales with the model you run. |
+| **Prior-only personas** | Zero ingestion cost | Pay only per chat turn. |
 
 ## Going deeper
 
