@@ -24,9 +24,16 @@
   <a href="#contributing">Contribute</a>
 </p>
 
-Steve Jobs on AI agents. Paul Graham on hiring your first engineer. Marcus Aurelius on the email you can't stop drafting. The same machine answers all three, and it'll cite its sources when it has them.
+<p align="center">
+  Steve Jobs on AI agents. Paul Graham on hiring your first engineer. Marcus Aurelius on the email you can't stop drafting.<br/>
+  The same machine answers all three, and it'll cite its sources when it has them.
+</p>
 
-This is wwxd. Self-hosted. MIT. Project home at **[wwxd.chat](https://wwxd.chat)**.
+<p align="center">
+  Project home: <a href="https://wwxd.chat"><strong>wwxd.chat</strong></a>
+</p>
+
+---
 
 > **Heads up.** wwxd generates AI _impressions_ of real people. The personas are not the people they reference, are not endorsed by them, and will sometimes misrepresent their views. Don't quote outputs. Don't take advice from them. Treat the whole thing as well-researched fan fiction.
 
