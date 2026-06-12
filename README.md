@@ -3,11 +3,6 @@
 </p>
 
 <p align="center">
-  <strong>what would x do?</strong><br/>
-  Type a name. Get a chat with that person. Or as close as a language model can get.
-</p>
-
-<p align="center">
   <a href="./LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
   <a href="https://nextjs.org"><img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
   <a href="https://react.dev"><img alt="React 19" src="https://img.shields.io/badge/React-19-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
@@ -16,45 +11,47 @@
 </p>
 
 <p align="center">
-  <a href="#two-ways-to-create-a-persona">Modes</a> ·
-  <a href="#quick-start">Quick start</a> ·
+  <a href="#what-you-get">What you get</a> ·
+  <a href="#get-going">Get going</a> ·
   <a href="#bring-your-own-model">Providers</a> ·
   <a href="#how-the-roundtable-works">Roundtable</a> ·
   <a href="#what-it-costs">Costs</a> ·
   <a href="#contributing">Contribute</a>
 </p>
 
-<p align="center">
-  Steve Jobs on AI agents. Paul Graham on hiring your first engineer. Marcus Aurelius on the email you can't stop drafting.<br/>
-  The same machine answers all three, and it'll cite its sources when it has them.
-</p>
-
-<p align="center">
-  Project home: <a href="https://wwxd.chat"><strong>wwxd.chat</strong></a>
-</p>
-
----
-
-> **Heads up.** wwxd generates AI _impressions_ of real people. The personas are not the people they reference, are not endorsed by them, and will sometimes misrepresent their views. Don't quote outputs. Don't take advice from them. Treat the whole thing as well-researched fan fiction.
-
-## Two ways to create a persona
-
-**Grounded.** Give wwxd source material: tweets via Apify, essays from URLs/RSS/sitemap, YouTube transcripts. It builds an embedding index over the corpus and every reply links back to specific chunks with `↗`. This is high-fidelity mode. You're hearing a synthesis of what they actually wrote.
-
-**Prior-only.** Just type a name. wwxd asks the model "who is this?", catches typos (`"Elon Mosk"` → `"Elon Musk — Tesla and SpaceX CEO"`), stores a stub, and chats from the model's training knowledge. No corpus, no citations. The fastest way to bring Steve Jobs, Marcus Aurelius, or Marie Kondo to your table.
-
-Both modes share the chat surface. Grounded personas wear a `CITED` pill. Prior-only personas read "from memory" instead of a tweet count.
-
-## Quick start
+## Get going
 
 ```bash
-git clone https://github.com/juanfiguera/wwxd.git && cd wwxd
-cp .env.example .env.local        # fill in at least one LLM provider key
+git clone https://github.com/juanfiguera/wwxd.git
+cd wwxd
+cp .env.example .env.local      # add at least one LLM provider key
 pnpm install
-pnpm dev                           # http://localhost:3000
+pnpm dev                         # → http://localhost:3000
 ```
 
-Open [/app](http://localhost:3000/app). You'll see an empty rail and an "Add a persona" card with two tabs.
+> [!IMPORTANT]
+> **wwxd generates AI _impressions_ of real people.** The personas are not the people they reference, are not endorsed by them, and will sometimes misrepresent their views. Don't quote outputs. Don't take advice from them. Treat the whole thing as well-researched fan fiction.
+
+## What you get
+
+Steve Jobs on AI agents. Paul Graham on hiring your first engineer. Marcus Aurelius on the email you can't stop drafting. The same machine answers all three, and it'll cite its sources when it has them.
+
+<p align="center">
+  <img src=".github/assets/chat-preview.png" alt="wwxd chat with Paul Graham — citations link back to specific tweets." width="100%" />
+</p>
+
+**Two modes for any persona:**
+
+- **Grounded** — give wwxd source material (tweets via Apify, essays from URLs/RSS/sitemap, YouTube transcripts). It builds an embedding index and every reply links back to specific chunks with `↗`. High-fidelity. You're hearing a synthesis of what they actually wrote.
+- **Prior-only** — just type a name. wwxd asks the model "who is this?", catches typos (`"Elon Mosk"` → `"Elon Musk — Tesla and SpaceX CEO"`), stores a stub, and chats from the model's training knowledge. No corpus, no citations. Fastest way to bring Steve Jobs, Marcus Aurelius, or Marie Kondo to your table.
+
+Both share the chat surface. Grounded personas wear a `CITED` pill. Prior-only personas read "from memory" instead of a tweet count.
+
+Project home: **[wwxd.chat](https://wwxd.chat)**.
+
+## Make your first persona
+
+After [`pnpm dev`](#get-going), open [http://localhost:3000](http://localhost:3000). You'll see an empty rail and an "Add a persona" card with two tabs.
 
 - **X handle.** Paste a handle. wwxd pulls tweets, optionally essays + YouTube, embeds the lot. About a minute for the latest 850 tweets. Needs `APIFY_TOKEN` + an embedding provider.
 - **Name anyone.** Type a name. wwxd disambiguates it and creates the persona instantly. No tokens beyond your LLM provider.
@@ -65,9 +62,9 @@ Make a persona, click their card, ask them something. That's the whole loop.
 
 | Surface | URL | Vibe |
 | --- | --- | --- |
-| Solo | `/app/<slug>` | One on one. Replies cite back to specific source chunks. |
-| Compare | `/app/compare?personas=a,b,c` | Same prompt, parallel columns. See how each one differs. |
-| Roundtable | `/app/compare?personas=a,b,c&mode=roundtable` | They take turns and react to each other by name. A gate lets a persona pass when they have nothing to add. |
+| Solo | `/<slug>` | One on one. Replies cite back to specific source chunks. |
+| Compare | `/compare?personas=a,b,c` | Same prompt, parallel columns. See how each one differs. |
+| Roundtable | `/compare?personas=a,b,c&mode=roundtable` | They take turns and react to each other by name. A gate lets a persona pass when they have nothing to add. |
 
 Save a lineup as a **Group** ("Board of Directors", "The Stoa") and one-click load it from the rail. **Share** a conversation as Markdown, plain text, or a versioned `.wwxd.json` snapshot.
 
@@ -124,7 +121,7 @@ pnpm fetch-youtube lexfridman https://youtu.be/VIDEO_ID
 # Embed everything (tweets + essays + transcripts → one index)
 pnpm embed-tweets paulg
 
-# /app/paulg now works.
+# /paulg now works.
 ```
 
 `--file` on `fetch-tweets` accepts an X archive JSON if you want to skip Apify entirely.
