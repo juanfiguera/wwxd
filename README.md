@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <a href="#what-you-get">What you get</a> ·
   <a href="#get-going">Get going</a> ·
+  <a href="#what-you-get">What you get</a> ·
   <a href="#bring-your-own-model">Providers</a> ·
   <a href="#how-the-roundtable-works">Roundtable</a> ·
   <a href="#what-it-costs">Costs</a> ·
@@ -20,6 +20,8 @@
 </p>
 
 ## Get going
+
+Three commands and you're in.
 
 ```bash
 git clone https://github.com/juanfiguera/wwxd.git
@@ -30,79 +32,90 @@ pnpm dev                         # → http://localhost:3000
 ```
 
 > [!IMPORTANT]
-> **wwxd generates AI _impressions_ of real people.** The personas are not the people they reference, are not endorsed by them, and will sometimes misrepresent their views. Don't quote outputs. Don't take advice from them. Treat the whole thing as well-researched fan fiction.
+> **wwxd generates AI _impressions_ of real people.** The personas aren't the people they reference, aren't endorsed by them, and will sometimes misrepresent their views. Don't quote outputs. Don't take advice from them. Treat the whole thing as well-researched fan fiction.
 
 ## What you get
 
 Steve Jobs on AI agents. Paul Graham on hiring your first engineer. Marcus Aurelius on the email you can't stop drafting. The same machine answers all three, and it'll cite its sources when it has them.
 
 <p align="center">
-  <img src=".github/assets/chat-preview.png" alt="wwxd chat with Paul Graham — citations link back to specific tweets." width="100%" />
+  <img src=".github/assets/chat-preview.png" alt="Roundtable with Steve Jobs (no sources, dashed border) and Paul Graham (CITED, sources). Each replies to the prompt in their own voice and reacts to the other by name." width="100%" />
 </p>
 
 **Two modes for any persona:**
 
-- **Grounded** — give wwxd source material (tweets via Apify, essays from URLs/RSS/sitemap, YouTube transcripts). It builds an embedding index and every reply links back to specific chunks with `↗`. High-fidelity. You're hearing a synthesis of what they actually wrote.
-- **Prior-only** — just type a name. wwxd asks the model "who is this?", catches typos (`"Elon Mosk"` → `"Elon Musk — Tesla and SpaceX CEO"`), stores a stub, and chats from the model's training knowledge. No corpus, no citations. Fastest way to bring Steve Jobs, Marcus Aurelius, or Marie Kondo to your table.
+- **Grounded** — feed wwxd their writing (tweets via Apify, essays from URLs/RSS/sitemap, YouTube transcripts) and replies link back to specific chunks with `↗`. You're hearing a synthesis of what they actually wrote.
+- **Prior-only** — just type a name. wwxd figures out who you mean (`"Elon Mosk"` → `"Elon Musk — Tesla and SpaceX CEO"`), stores a stub, and chats from the model's training knowledge. No corpus needed. Perfect for historical figures and anyone you can't ingest.
 
-Both share the chat surface. Grounded personas wear a `CITED` pill. Prior-only personas read "from memory" instead of a tweet count.
-
-Project home: **[wwxd.chat](https://wwxd.chat)**.
+Both share the chat surface. Grounded personas wear a `CITED` pill. Prior-only personas read "from memory".
 
 ## Make your first persona
 
-After [`pnpm dev`](#get-going), open [http://localhost:3000](http://localhost:3000). You'll see an empty rail and an "Add a persona" card with two tabs.
+After `pnpm dev`, open [http://localhost:3000](http://localhost:3000). Empty rail, "Add a persona" card with two tabs:
 
-- **X handle.** Paste a handle. wwxd pulls tweets, optionally essays + YouTube, embeds the lot. About a minute for the latest 850 tweets. Needs `APIFY_TOKEN` + an embedding provider.
-- **Name anyone.** Type a name. wwxd disambiguates it and creates the persona instantly. No tokens beyond your LLM provider.
+- **X handle** — paste a handle. About a minute for the latest 850 tweets. Needs `APIFY_TOKEN` + an embedding provider.
+- **Name anyone** — type a name. Instant. No tokens beyond your LLM provider.
 
-Make a persona, click their card, ask them something. That's the whole loop.
+Make one, click their card, ask them something. That's the whole loop.
 
 ## Three ways to talk to them
 
-| Surface | URL | Vibe |
+| | URL | What it is |
 | --- | --- | --- |
-| Solo | `/<slug>` | One on one. Replies cite back to specific source chunks. |
-| Compare | `/compare?personas=a,b,c` | Same prompt, parallel columns. See how each one differs. |
-| Roundtable | `/compare?personas=a,b,c&mode=roundtable` | They take turns and react to each other by name. A gate lets a persona pass when they have nothing to add. |
+| **Solo** | `/<slug>` | One on one. |
+| **Compare** | `/compare?personas=a,b,c` | Same prompt, parallel columns. See where they differ. |
+| **Roundtable** | `/compare?personas=a,b,c&mode=roundtable` | They take turns and react to each other by name. A gate lets a persona pass when they have nothing to add. |
 
-Save a lineup as a **Group** ("Board of Directors", "The Stoa") and one-click load it from the rail. **Share** a conversation as Markdown, plain text, or a versioned `.wwxd.json` snapshot.
+Save a lineup as a **Group** ("Board of Directors", "The Stoa") and one-click it from the rail. **Share** a conversation as Markdown, plain text, or a versioned `.wwxd.json` snapshot.
 
 ## Bring your own model
 
-wwxd is provider-agnostic. Pick a chat model, pick an embedding model, edit `.env.local`. Defaults are Anthropic Claude Opus 4.7 + OpenAI `text-embedding-3-small` because they're what shipped working out of the box. None of it is hard-wired.
+Edit `.env.local` and point wwxd at whoever you trust. Anthropic, OpenAI, Ollama running locally, anything OpenAI-compatible (OpenRouter, vLLM, LMStudio).
 
 ```bash
-LLM_PROVIDER=anthropic                # anthropic | openai | openai-compatible
-                                      # aliases: ollama | openrouter | vllm | lmstudio
+LLM_PROVIDER=anthropic              # anthropic | openai | openai-compatible
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Running Ollama locally? Two lines and you're done:
+# Running Ollama? Two lines:
 # LLM_PROVIDER=openai-compatible
 # LLM_BASE_URL=http://localhost:11434/v1
 # LLM_API_KEY=ollama
 
-# Embeddings — optional, but recommended for grounded mode
+# Embeddings power citations in grounded mode (optional, falls back to BM25)
 EMBEDDING_PROVIDER=openai
 OPENAI_API_KEY=sk-...
-
-# Apify is only for the grounded "X handle" path. Skip if you only
-# use prior-only personas.
-APIFY_TOKEN=apify_api_...
 ```
 
-Where to get keys:
+Full env reference: [`.env.example`](./.env.example).
 
-- [Anthropic](https://console.anthropic.com/settings/keys)
-- [OpenAI](https://platform.openai.com/api-keys)
-- [Apify](https://console.apify.com/account/integrations)
-- [Ollama](https://ollama.com) — local, free, no key
+Get keys: [Anthropic](https://console.anthropic.com/settings/keys) · [OpenAI](https://platform.openai.com/api-keys) · [Apify](https://console.apify.com/account/integrations) · [Ollama](https://ollama.com) (free, local).
 
-Full env reference in [`.env.example`](./.env.example).
+## How the roundtable works
 
-## Adding a grounded persona from the CLI
+Each turn, wwxd loops the personas in order:
 
-The UI handles this from the X-handle tab. If you want to script it instead (batch imports, deep historical pulls, X archive JSON):
+1. **Gate** — a cheap call (your `GATE_MODEL`) asks "given the conversation so far, do you actually have something to add?" YES / NO with a reason. First speaker skips this.
+2. **Speak** — if YES, retrieve their chunks (grounded) or go from memory (prior-only) and stream. The prompt includes every prior speaker so they can agree, push back, or build on each other by name.
+3. **Pass** — if NO, surface a `(passed)` chip with the reason. No charge for a quiet turn.
+
+Code: `lib/gate.ts` and `app/api/roundtable/route.ts`.
+
+## What it costs
+
+Depends on which providers you pick. Ballpark:
+
+- **Tweet ingestion (Apify)** — $0.25 to $0.40 per 1k tweets. Latest pull is a few dollars; deep pulls of a 10-year account are $10 to $30. Skip if you only use prior-only personas.
+- **Embeddings** — about $0.02 per 1M tokens on OpenAI's small embedding model. A 5k-tweet corpus is around $0.01. Free if you run them locally.
+- **Chat (hosted)** — the persona prompt is cached, so each turn mostly pays for retrieval + response. Cents per turn on a frontier model, fractions of a cent on a mid-tier one. A 4-persona roundtable turn is roughly 4× a solo turn.
+- **Chat (local)** — Ollama, vLLM, LMStudio: free. Quality scales with the model you run.
+- **Prior-only personas** — zero ingestion cost. Pay only per turn.
+
+## Going deeper
+
+<details>
+<summary><strong>Add a persona from the CLI</strong></summary>
+
+For batch imports or X archive JSONs:
 
 ```bash
 # Tweets — latest ~850 in X's search window
@@ -125,16 +138,10 @@ pnpm embed-tweets paulg
 ```
 
 `--file` on `fetch-tweets` accepts an X archive JSON if you want to skip Apify entirely.
+</details>
 
-## Tests + evals
-
-```bash
-pnpm test                       # 473 unit tests
-pnpm eval-persona paulg         # voice match score via LLM judge
-pnpm eval-discriminate paulg    # blind A/B: can a judge tell wwxd apart from the real thing?
-```
-
-## What's actually happening
+<details>
+<summary><strong>What's actually happening inside</strong></summary>
 
 ```
 scripts/fetch-tweets.ts     →  data/<slug>.json                  corpus
@@ -159,45 +166,38 @@ app/api/chat/[username]/route.ts:
   Load corpus, branch on mode. Grounded retrieves and injects sources
   with [src:ID] markers. Prior-only just emits the prompt and streams.
 ```
+</details>
 
-## How the roundtable works
+<details>
+<summary><strong>Tests + evals</strong></summary>
 
-For each turn, wwxd loops the personas in order:
-
-1. **Gate.** A cheap call (whichever model you set as `GATE_MODEL`, defaults to your provider's small/fast tier) asks "given the conversation so far, do you actually have anything to add?" YES / NO with a reason. First speaker skips the gate.
-2. **Speak.** If YES, retrieve their chunks (grounded) or go from memory (prior-only). The prompt includes every prior speaker's contribution so they can agree, push back, or build by name.
-3. **Pass.** If NO, surface a `(passed)` chip with the reason. No charge for a turn nobody spoke on.
-
-See `lib/gate.ts` and `app/api/roundtable/route.ts`.
-
-## What it costs
-
-Costs depend on the providers you pick. Rough ballpark:
-
-- **Tweet ingestion** (Apify) — $0.25 to $0.40 per 1k tweets. A latest pull is a few dollars. A `--deep` pull of a 10-year account is $10 to $30. Skip entirely if you only use prior-only personas.
-- **Embeddings** — typically $0.02 per 1M tokens with OpenAI's small embedding model. A 5k-tweet corpus is about $0.01 to embed. Free if you run embeddings locally (Ollama, vLLM, etc.).
-- **Chat (hosted providers)** — the static persona prompt is cached when the provider supports it (Anthropic and OpenAI both do), so each turn mostly pays for retrieval + response. On a frontier-tier model, expect cents per turn; on a mid-tier model, fractions of a cent. A 4-persona roundtable turn is roughly 4× a solo turn.
-- **Chat (local)** — Ollama, vLLM, LMStudio, or any openai-compatible backend you stand up yourself: free, minus electricity. Quality scales with the model you run.
-- **Prior-only personas** — zero ingestion cost in any setup. You only pay (or only burn local compute) per chat turn.
+```bash
+pnpm test                       # 473 unit tests
+pnpm eval-persona paulg         # voice match score via LLM judge
+pnpm eval-discriminate paulg    # blind A/B: can a judge tell wwxd from real?
+```
+</details>
 
 ## Caveats worth reading
 
-- It's a simulation. The disclaimer at the top of this file isn't decoration. Please keep it visible if you ship a fork.
+- It's a simulation. The disclaimer up top isn't decoration. Keep it visible if you fork.
 - No tools, no web access. The chat only knows what's in the corpus (grounded) or what the model knows (prior-only).
-- Grounded without embeddings = BM25-only, no `↗` links. Set up an embedding provider if you want citations.
-- Prior-only never cites. Specific quotes, dates, and numbers may be fabricated. Treat replies as informed extrapolation, not as records.
-- Everything is local. `data/wwxd.db` (SQLite) holds conversations. `data/<slug>.{json,embeddings.json}` hold corpora. Nothing leaves your machine unless you share a snapshot.
+- No embeddings = BM25-only, no `↗` links. Set up an embedding provider if you want citations.
+- Prior-only personas never cite. Specific quotes, dates, and numbers may be fabricated. Treat replies as informed extrapolation.
+- Everything is local. `data/wwxd.db` holds conversations. `data/<slug>.{json,embeddings.json}` hold corpora. Nothing leaves your machine unless you share a snapshot.
 
 ## Contributing
 
-PRs welcome. Surface is small:
+PRs welcome. Small surface:
 
 - **Ingestion** — `lib/ingest/`, `scripts/`
 - **Retrieval** — `lib/retrieve.ts`, `lib/bm25.ts`
 - **Persona prompts** — `lib/persona.ts`, `lib/disambiguate.ts`
 - **Chat UI** — `app/`
 
-Run `pnpm test` before opening a PR. Tests live under `lib/__tests__/` and `app/components/__tests__/`.
+Run `pnpm test` before opening a PR. Tests live in `lib/__tests__/` and `app/components/__tests__/`.
+
+Project home: **[wwxd.chat](https://wwxd.chat)**.
 
 ## License
 
