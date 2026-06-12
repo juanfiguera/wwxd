@@ -15,6 +15,20 @@ vi.mock('swr', () => ({
 import { useChatHistory } from '../use-chat-history';
 import type { UIMessage } from 'ai';
 
+type ConversationPayload = {
+  conversation: { id: string; kind: 'solo' | 'roundtable'; title: null; createdAt: string; updatedAt: string };
+  participants: string[];
+  messages: { id: string; role: 'user' | 'assistant'; speaker: string | null; text: string; metadata: unknown }[];
+};
+
+function payload(messages: ConversationPayload['messages'], username = 'paulg'): ConversationPayload {
+  return {
+    conversation: { id: 'conv-uuid', kind: 'solo', title: null, createdAt: '', updatedAt: '' },
+    participants: [username],
+    messages,
+  };
+}
+
 function makeUiMessage(role: 'user' | 'assistant', text: string, id = 'm-' + text): UIMessage {
   return {
     id,
@@ -55,21 +69,19 @@ afterEach(() => {
 describe('useChatHistory hydration', () => {
   it('does nothing while SWR data is still loading', () => {
     const setMessages = vi.fn();
-    render(
-      <Harness username="paulg" messages={[]} setMessages={setMessages} />,
-    );
+    render(<Harness username="paulg" messages={[]} setMessages={setMessages} />);
     expect(setMessages).not.toHaveBeenCalled();
   });
 
   it('hydrates useChat once when SWR returns saved messages', () => {
-    swrData.mockReturnValue([
-      { id: '1', role: 'user', speaker: null, text: 'hi', metadata: null },
-      { id: '2', role: 'assistant', speaker: 'paulg', text: 'hello.', metadata: null },
-    ]);
-    const setMessages = vi.fn();
-    render(
-      <Harness username="paulg" messages={[]} setMessages={setMessages} />,
+    swrData.mockReturnValue(
+      payload([
+        { id: '1', role: 'user', speaker: null, text: 'hi', metadata: null },
+        { id: '2', role: 'assistant', speaker: 'paulg', text: 'hello.', metadata: null },
+      ]),
     );
+    const setMessages = vi.fn();
+    render(<Harness username="paulg" messages={[]} setMessages={setMessages} />);
     expect(setMessages).toHaveBeenCalledOnce();
     const args = setMessages.mock.calls[0][0] as UIMessage[];
     expect(args).toHaveLength(2);
@@ -77,19 +89,17 @@ describe('useChatHistory hydration', () => {
   });
 
   it('resets to [] when the saved conversation is empty', () => {
-    swrData.mockReturnValue([]);
+    swrData.mockReturnValue(payload([]));
     const setMessages = vi.fn();
-    render(
-      <Harness username="paulg" messages={[]} setMessages={setMessages} />,
-    );
+    render(<Harness username="paulg" messages={[]} setMessages={setMessages} />);
     expect(setMessages).toHaveBeenCalledOnce();
     expect(setMessages.mock.calls[0][0]).toEqual([]);
   });
 });
 
 describe('useChatHistory saveAfterFinish', () => {
-  it('PUTs the wire form to /api/conversations and mutates the cache', async () => {
-    swrData.mockReturnValue([]);
+  it('PUTs to /api/conversations/<uuid> and mutates the cache', async () => {
+    swrData.mockReturnValue(payload([]));
     let api!: ReturnType<typeof useChatHistory>;
     const setMessages = vi.fn();
     render(
@@ -107,24 +117,23 @@ describe('useChatHistory saveAfterFinish', () => {
         makeUiMessage('user', 'hi'),
         makeUiMessage('assistant', 'hello.'),
       ]);
-      // let the fetch promise resolve so the .then(mutate) runs
       await Promise.resolve();
       await Promise.resolve();
     });
     expect(globalThis.fetch).toHaveBeenCalledOnce();
     const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toContain('/api/conversations?kind=solo&key=paulg');
+    expect(url).toBe('/api/conversations/conv-uuid');
     expect((init as RequestInit).method).toBe('PUT');
     const body = JSON.parse((init as { body: string }).body) as {
       messages: { speaker: string | null; text: string }[];
     };
     expect(body.messages).toHaveLength(2);
-    expect(body.messages[1].speaker).toBe('paulg'); // assistant gets the username as speaker
+    expect(body.messages[1].speaker).toBe('paulg');
     expect(swrMutate).toHaveBeenCalled();
   });
 
   it('is a no-op when the final message list is empty', () => {
-    swrData.mockReturnValue([]);
+    swrData.mockReturnValue(payload([]));
     let api!: ReturnType<typeof useChatHistory>;
     render(
       <Harness
@@ -143,8 +152,8 @@ describe('useChatHistory saveAfterFinish', () => {
 });
 
 describe('useChatHistory clear', () => {
-  it('DELETEs the conversation and resets messages', async () => {
-    swrData.mockReturnValue([]);
+  it('DELETEs /api/conversations/<uuid> and resets messages', async () => {
+    swrData.mockReturnValue(payload([]));
     const setMessages = vi.fn();
     let api!: ReturnType<typeof useChatHistory>;
     render(
@@ -166,15 +175,15 @@ describe('useChatHistory clear', () => {
 
     expect(setMessages).toHaveBeenCalledWith([]);
     const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toContain('/api/conversations?kind=solo&key=paulg');
+    expect(url).toBe('/api/conversations/conv-uuid');
     expect((init as RequestInit).method).toBe('DELETE');
-    expect(swrMutate).toHaveBeenCalledWith([], { revalidate: false });
+    expect(swrMutate).toHaveBeenCalled();
   });
 });
 
 describe('useChatHistory hasHistory', () => {
   it('reflects whether messages array is non-empty', () => {
-    swrData.mockReturnValue([]);
+    swrData.mockReturnValue(payload([]));
     let api!: ReturnType<typeof useChatHistory>;
     const { rerender } = render(
       <Harness

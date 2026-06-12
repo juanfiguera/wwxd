@@ -273,6 +273,9 @@ export function Compare({
   const selectedParam = searchParams.get('personas') ?? '';
   const modeParam = (searchParams.get('mode') as Mode | null) ?? 'compare';
   const mode: Mode = modeParam === 'roundtable' ? 'roundtable' : 'compare';
+  // Active roundtable conversation id, if any. Compose URLs (no active
+  // conversation yet) leave this null.
+  const conversationId = searchParams.get('conversation');
 
   const selectedUsernames = useMemo(
     () =>
@@ -361,7 +364,7 @@ export function Compare({
   }, [pickerOpen]);
 
   const writeUrl = useCallback(
-    (usernames: string[], nextMode: Mode) => {
+    (usernames: string[], nextMode: Mode, opts?: { conversationId?: string | null }) => {
       const params = new URLSearchParams();
       if (usernames.length > 0) params.set('personas', usernames.join(','));
       if (nextMode !== 'compare') params.set('mode', nextMode);
@@ -372,10 +375,16 @@ export function Compare({
       ) {
         params.set('group', currentGroup.id);
       }
+      // Preserve the active conversation id across URL updates so adding /
+      // removing participants doesn't drop the user back into compose mode.
+      // Caller can pass null to explicitly clear it.
+      const nextConvId =
+        opts && 'conversationId' in opts ? opts.conversationId : conversationId;
+      if (nextConvId) params.set('conversation', nextConvId);
       const qs = params.toString();
       router.replace(qs ? `/compare?${qs}` : '/compare');
     },
-    [router, currentGroup],
+    [router, currentGroup, conversationId],
   );
 
   const matchedGroup =
@@ -439,12 +448,41 @@ export function Compare({
     }
   }
 
-  function add(username: string) {
+  async function add(username: string) {
+    // When an active roundtable conversation exists, sync the participant
+    // change to the server before updating the URL — this is the core fix
+    // for the "couldn't save the roundtable" bug: no key forking, no
+    // carry-over of message IDs, just an INSERT into conversation_participants.
+    if (conversationId && mode === 'roundtable') {
+      try {
+        await fetchJson(`/api/conversations/${conversationId}/participants`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username }),
+          onErrorMessage: "Couldn't add this persona to the roundtable.",
+        });
+      } catch {
+        return;
+      }
+    }
     writeUrl([...selectedUsernames, username], mode);
     setPickerOpen(false);
   }
 
-  function remove(username: string) {
+  async function remove(username: string) {
+    if (conversationId && mode === 'roundtable') {
+      try {
+        await fetchJson(
+          `/api/conversations/${conversationId}/participants?username=${encodeURIComponent(username)}`,
+          {
+            method: 'DELETE',
+            onErrorMessage: "Couldn't remove this persona from the roundtable.",
+          },
+        );
+      } catch {
+        return;
+      }
+    }
     writeUrl(
       selectedUsernames.filter((u) => u !== username),
       mode,
@@ -685,6 +723,10 @@ export function Compare({
             pendingSubmission={submission}
             onConsumeSubmission={() => setSubmission(null)}
             groupName={matchedGroup?.name}
+            conversationId={conversationId}
+            onConversationCreated={(id) =>
+              writeUrl(selectedUsernames, mode, { conversationId: id })
+            }
           />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col gap-3">

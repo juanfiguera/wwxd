@@ -73,38 +73,40 @@ export async function ChatRail() {
     .filter((c) => c.messageCount > 0)
     .map((c): RailConv | null => {
       if (c.kind === 'solo') {
-        const p = personaByUsername.get(c.key);
+        const persona = c.participants[0];
+        if (!persona) return null;
+        const p = personaByUsername.get(persona);
         if (!p) return null;
         return {
           kind: 'solo',
-          key: c.key,
+          key: c.id,
           displayName: p.displayName,
-          members: [c.key],
+          members: [persona],
           messageCount: c.messageCount,
           updatedAt: c.updatedAt,
-          accent: personaStyle(c.key).color,
+          accent: personaStyle(persona).color,
         };
       }
-      // Roundtable. Skip if every member has been deleted.
-      const members = c.key.split(',').filter(Boolean);
-      const resolved = members
+      // Roundtable. Skip if every active member has been deleted.
+      const resolved = c.participants
         .map((u) => personaByUsername.get(u))
         .filter((p): p is PersonaLite => Boolean(p));
       if (resolved.length === 0) return null;
-      const sortedKey = [...members].sort().join(',');
+      const sortedKey = [...c.participants].sort().join(',');
       const matchedGroup = groupBySortedKey.get(sortedKey);
       return {
         kind: matchedGroup ? 'group' : 'roundtable',
-        key: c.key,
-        displayName: matchedGroup?.name ?? resolved.map((p) => p.displayName).join(', '),
-        members,
-        memberDisplayNames: members.map(
+        key: c.id,
+        displayName:
+          matchedGroup?.name ?? resolved.map((p) => p.displayName).join(', '),
+        members: c.participants,
+        memberDisplayNames: c.participants.map(
           (u) => personaByUsername.get(u)?.displayName ?? u,
         ),
         groupId: matchedGroup?.id,
         messageCount: c.messageCount,
         updatedAt: c.updatedAt,
-        accent: personaStyle(members[0]!).color,
+        accent: personaStyle(c.participants[0]!).color,
       };
     })
     .filter((c): c is RailConv => Boolean(c));

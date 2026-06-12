@@ -23,15 +23,15 @@ afterEach(() => {
 });
 
 const solo: RecentConversation = {
+  id: '11111111-1111-1111-1111-111111111111',
   kind: 'solo',
-  key: 'paulg',
   updatedAt: new Date(Date.now() - 60_000).toISOString(),
   messageCount: 4,
   participants: [{ username: 'paulg', displayName: 'Paul Graham' }],
 };
 const round: RecentConversation = {
+  id: '22222222-2222-2222-2222-222222222222',
   kind: 'roundtable',
-  key: 'paulg,sama',
   updatedAt: new Date(Date.now() - 120_000).toISOString(),
   messageCount: 12,
   participants: [
@@ -89,7 +89,7 @@ describe('ConversationsSection', () => {
       expect(routerRefresh).toHaveBeenCalled();
     });
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      '/api/conversations?kind=solo&key=paulg',
+      `/api/conversations/${solo.id}`,
       { method: 'DELETE' },
     );
     expect(screen.queryByText('Paul Graham')).toBeNull();

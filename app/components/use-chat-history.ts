@@ -6,6 +6,7 @@ import useSWR from 'swr';
 import type { UIMessage } from 'ai';
 import {
   conversationFetcher,
+  conversationMessagesUrl,
   soloKey,
   type StoredMessageWire,
 } from './conversation-cache';
@@ -35,8 +36,9 @@ function storedToUi(s: StoredMessageWire): UIMessage {
 }
 
 /**
- * Solo-chat history. SWR owns the load + cache; saves happen explicitly
- * from useChat's `onFinish` (call `saveAfterFinish` from there).
+ * Solo-chat history. SWR resolves the persona's solo conversation (creating
+ * one on first access) and loads its messages. Saves happen explicitly from
+ * useChat's `onFinish` via `saveAfterFinish`.
  */
 export function useChatHistory({
   username,
@@ -60,17 +62,15 @@ export function useChatHistory({
 
   // Hydrate useChat's internal state from the fetched conversation. We do
   // this once per username — after that, useChat owns the message stream
-  // (streaming chunks, new turns) and we sync back out via saveAfterFinish.
+  // and we sync back out via saveAfterFinish.
   const hydratedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!data) return;
     if (hydratedFor.current === username) return;
     hydratedFor.current = username;
-    setMessages(data.length > 0 ? data.map(storedToUi) : []);
+    setMessages(data.messages.length > 0 ? data.messages.map(storedToUi) : []);
   }, [data, username, setMessages]);
 
-  // Reset hydration when the user switches personas, so the next data arrival
-  // re-hydrates instead of holding the previous persona's transcript.
   useEffect(() => {
     return () => {
       if (hydratedFor.current !== username) hydratedFor.current = null;
@@ -80,34 +80,36 @@ export function useChatHistory({
   const saveAfterFinish = useCallback(
     (finalMessages: UIMessage[]) => {
       if (finalMessages.length === 0) return;
+      if (!data) return; // conversation not resolved yet
       const wire = finalMessages.map((m) => uiToStored(m, username));
-      fetchJson(key, {
+      fetchJson(conversationMessagesUrl(data.conversation.id), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: wire }),
         onErrorMessage: "Couldn't save this conversation. Your next message may not persist.",
       })
         .then(() => {
-          mutate(wire, { revalidate: false });
+          mutate({ ...data, messages: wire }, { revalidate: false });
           router.refresh();
         })
         .catch(() => {});
     },
-    [username, key, mutate, router],
+    [username, data, mutate, router],
   );
 
   const clear = useCallback(() => {
     setMessages([]);
-    fetchJson(key, {
+    if (!data) return;
+    fetchJson(conversationMessagesUrl(data.conversation.id), {
       method: 'DELETE',
       onErrorMessage: "Couldn't clear the conversation on the server.",
     })
       .then(() => {
-        mutate([], { revalidate: false });
+        mutate({ ...data, messages: [] }, { revalidate: false });
         router.refresh();
       })
       .catch(() => {});
-  }, [key, setMessages, mutate, router]);
+  }, [data, setMessages, mutate, router]);
 
   return { clear, hasHistory: messages.length > 0, saveAfterFinish };
 }

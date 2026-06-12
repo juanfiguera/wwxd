@@ -1,6 +1,6 @@
 import { unlink } from 'node:fs/promises';
 import { z } from 'zod';
-import { clearConversation } from '@/lib/db';
+import { removePersonaFromAllConversations } from '@/lib/db';
 import { removePersonaFromAllGroups } from '@/lib/groups';
 import { corpusPath } from '@/lib/persona';
 import { embeddingsPath } from '@/lib/retrieve';
@@ -35,12 +35,12 @@ export async function DELETE(
   try {
     summary.corpusDeleted = await tryUnlink(corpusPath(username));
     summary.embeddingsDeleted = await tryUnlink(embeddingsPath(username));
-    // Best-effort: also clear the embeddings cache for this username so a
-    // follow-up request doesn't try to read deleted data. The SQLite-backed
-    // conversation row is removed via clearConversation; we don't touch
-    // roundtable conversations the persona participated in — those are kept
-    // as historical record, just without the persona's mascot data.
-    summary.soloConversationCleared = clearConversation('solo', username);
+    // Drop the solo conversation (1:1 with persona) and stamp left_at on
+    // every active roundtable participation. Roundtable history is kept as
+    // a record — the persona just stops being an active member.
+    const convSummary = removePersonaFromAllConversations(username);
+    summary.soloConversationCleared = convSummary.soloDeleted;
+    summary.roundtablesUpdated = convSummary.roundtablesUpdated;
     summary.groupsTouched = await removePersonaFromAllGroups(username);
 
     return Response.json({ ok: true, summary });

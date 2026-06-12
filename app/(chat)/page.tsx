@@ -58,17 +58,22 @@ async function listPersonas(): Promise<PersonaSummary[]> {
 }
 
 function enrichConversation(
-  conv: { kind: 'solo' | 'roundtable'; key: string; updatedAt: string; messageCount: number },
+  conv: {
+    id: string;
+    kind: 'solo' | 'roundtable';
+    updatedAt: string;
+    messageCount: number;
+    participants: string[];
+  },
   personas: PersonaSummary[],
 ): RecentConversation {
-  const usernames = conv.kind === 'solo' ? [conv.key] : conv.key.split(',');
-  const participants = usernames.map((u) => ({
+  const participants = conv.participants.map((u) => ({
     username: u,
     displayName: personas.find((p) => p.username === u)?.displayName ?? u,
   }));
   return {
+    id: conv.id,
     kind: conv.kind,
-    key: conv.key,
     updatedAt: conv.updatedAt,
     messageCount: conv.messageCount,
     participants,

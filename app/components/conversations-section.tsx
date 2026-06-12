@@ -8,8 +8,8 @@ import { RelativeTime } from './relative-time';
 import { personaStyle, tintHex } from '@/lib/persona-styling';
 
 export type RecentConversation = {
+  id: string;
   kind: 'solo' | 'roundtable';
-  key: string;
   updatedAt: string;
   messageCount: number;
   // Resolved at the server: display names for the personas involved
@@ -17,9 +17,16 @@ export type RecentConversation = {
 };
 
 function chatHref(conv: RecentConversation): string {
-  if (conv.kind === 'solo') return `/${conv.participants[0]?.username ?? conv.key}`;
+  if (conv.kind === 'solo') {
+    return `/${conv.participants[0]?.username ?? conv.id}`;
+  }
   const personas = conv.participants.map((p) => p.username).join(',');
-  return `/compare?personas=${encodeURIComponent(personas)}&mode=roundtable`;
+  const qs = new URLSearchParams({
+    personas,
+    mode: 'roundtable',
+    conversation: conv.id,
+  });
+  return `/compare?${qs.toString()}`;
 }
 
 export function ConversationsSection({
@@ -31,22 +38,22 @@ export function ConversationsSection({
   const [deleting, setDeleting] = useState<string | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
 
-  const visible = conversations.filter((c) => !hidden.has(`${c.kind}:${c.key}`));
+  const visible = conversations.filter((c) => !hidden.has(c.id));
   if (visible.length === 0) return null;
 
   async function onDelete(conv: RecentConversation) {
-    const id = `${conv.kind}:${conv.key}`;
     const label =
       conv.kind === 'solo'
-        ? conv.participants[0]?.displayName ?? conv.key
-        : conv.participants.map((p) => p.displayName).join(', ') || conv.key;
+        ? conv.participants[0]?.displayName ?? conv.id
+        : conv.participants.map((p) => p.displayName).join(', ') || conv.id;
     if (!confirm(`Delete this conversation with ${label}?`)) return;
-    setDeleting(id);
+    setDeleting(conv.id);
     try {
-      const url = `/api/conversations?kind=${conv.kind}&key=${encodeURIComponent(conv.key)}`;
-      const res = await fetch(url, { method: 'DELETE' });
+      const res = await fetch(`/api/conversations/${encodeURIComponent(conv.id)}`, {
+        method: 'DELETE',
+      });
       if (res.ok) {
-        setHidden((prev) => new Set(prev).add(id));
+        setHidden((prev) => new Set(prev).add(conv.id));
         router.refresh();
       }
     } finally {
@@ -61,16 +68,15 @@ export function ConversationsSection({
       </h2>
       <ul className="space-y-2">
         {visible.slice(0, 8).map((conv) => {
-          const id = `${conv.kind}:${conv.key}`;
           const isSolo = conv.kind === 'solo';
           const label = isSolo
-            ? conv.participants[0]?.displayName ?? conv.key
+            ? conv.participants[0]?.displayName ?? conv.id
             : conv.participants.map((p) => p.displayName).filter(Boolean).join(', ') ||
-              conv.key;
+              conv.id;
           const preview = conv.participants.slice(0, 3);
           return (
             <li
-              key={id}
+              key={conv.id}
               className="flex items-center gap-3 rounded-[var(--r-lg)] border border-[var(--line)] bg-white p-3 transition hover:border-[var(--ink)] hover:shadow-[var(--shadow-sm)]"
             >
               <Link href={chatHref(conv)} className="flex min-w-0 flex-1 items-center gap-3">
@@ -109,11 +115,11 @@ export function ConversationsSection({
               </Link>
               <button
                 onClick={() => onDelete(conv)}
-                disabled={deleting === id}
+                disabled={deleting === conv.id}
                 aria-label="Delete conversation"
                 className="shrink-0 rounded-full p-1.5 text-xs text-[var(--ink-soft)] hover:bg-[var(--paper-2)] hover:text-[var(--ink)] disabled:opacity-50"
               >
-                {deleting === id ? '...' : '✕'}
+                {deleting === conv.id ? '...' : '✕'}
               </button>
             </li>
           );

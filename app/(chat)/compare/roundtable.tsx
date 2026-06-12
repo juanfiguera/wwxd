@@ -12,7 +12,9 @@ import { ShareButton } from '@/app/components/share-button';
 import { useStickyScroll } from '@/app/components/use-sticky-scroll';
 import {
   conversationFetcher,
+  conversationMessagesUrl,
   roundtableKey as roundtableSWRKey,
+  type Conversation,
   type StoredMessageWire,
 } from '@/app/components/conversation-cache';
 import { fetchJson } from '@/app/components/fetch-utils';
@@ -35,10 +37,6 @@ export type RoundtableMessage = {
   passed?: boolean;
   passReason?: string;
 };
-
-function conversationKey(usernames: string[]): string {
-  return [...usernames].sort().join(',');
-}
 
 function uid(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -82,12 +80,21 @@ export function RoundtableView({
   pendingSubmission,
   onConsumeSubmission,
   groupName,
+  conversationId,
+  onConversationCreated,
 }: {
   personas: PersonaSummary[];
   pendingSubmission: { id: number; text: string } | null;
   onConsumeSubmission: () => void;
   /** Optional saved-group name. Used as the share title when present. */
   groupName?: string;
+  /**
+   * The conversation's stable UUID. Null in "compose mode" — we render
+   * locally and create the conversation on first save. Parent should react
+   * via onConversationCreated to update the URL.
+   */
+  conversationId: string | null;
+  onConversationCreated: (id: string) => void;
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<RoundtableMessage[]>([]);
@@ -95,67 +102,52 @@ export function RoundtableView({
   const [error, setError] = useState<string | null>(null);
   const { ref: scrollRef, pinned, scrollToBottom, ping } = useStickyScroll<HTMLDivElement>();
   const lastFiredId = useRef<number | null>(null);
-  const hydratedKey = useRef<string>('');
-  const prevUsernamesRef = useRef<string[]>([]);
+  const hydratedConvId = useRef<string | null>(null);
   const messagesRef = useRef<RoundtableMessage[]>(messages);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
   const usernames = useMemo(() => personas.map((p) => p.username), [personas]);
-  const key = useMemo(() => conversationKey(usernames), [usernames]);
-  const swrKey = roundtableSWRKey(key);
 
-  // SWR owns the load lifecycle: it dedupes (StrictMode-safe), caches per
-  // conversation key, and refetches automatically when `swrKey` changes.
-  // Our job is just to (a) hydrate local state from `data` on key change and
-  // (b) handle the "add member" carry-over.
+  // SWR is keyed on the conversation UUID. In compose mode (conversationId
+  // null) we pass `null` so SWR doesn't fire — local state is the source of
+  // truth until the first save creates the conversation.
+  const swrKey = conversationId ? roundtableSWRKey(conversationId) : null;
   const { data, mutate } = useSWR(swrKey, conversationFetcher, {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
   });
 
+  // Hydrate once per conversation. With UUID-based identity there's no
+  // "key changed because participants changed" case to handle — adding a
+  // participant updates conversation_participants without forking.
   useEffect(() => {
-    if (data === undefined) return; // still loading
-    if (hydratedKey.current === key) return; // already hydrated for this key
+    if (!conversationId) return;
+    if (!data) return; // still loading
+    if (hydratedConvId.current === conversationId) return;
+    hydratedConvId.current = conversationId;
+    setMessages(data.messages.map(storedToRt));
+  }, [data, conversationId]);
 
-    const prevUsernames = prevUsernamesRef.current;
-    const isAddingMember =
-      prevUsernames.length > 0 &&
-      prevUsernames.every((u) => usernames.includes(u));
-    const carried = messagesRef.current;
+  // Reset hydration if the conversation id is removed (e.g. user navigates
+  // back to compose mode in the same component instance).
+  useEffect(() => {
+    if (!conversationId) hydratedConvId.current = null;
+  }, [conversationId]);
 
-    hydratedKey.current = key;
-    prevUsernamesRef.current = usernames;
-
-    if (isAddingMember && carried.length > 0) {
-      // User added a persona to the existing group — carry the conversation
-      // forward to the new key instead of resetting to whatever (probably
-      // empty) was stored there.
-      const wire = carried.map(rtToStored);
-      mutate(wire, { revalidate: false });
-      fetchJson(swrKey, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: wire }),
-        onErrorMessage: "Couldn't carry the conversation into the new group.",
-      })
-        .then(() => router.refresh())
-        .catch(() => {});
-      return;
-    }
-
-    setMessages(data.map(storedToRt));
-  }, [data, key, usernames, swrKey, mutate, router]);
-
-  // Explicit save, called from `runRoundRobin`. Pushes to the server, updates
-  // the SWR cache so the rail / future revisits see the latest, and refreshes
-  // the rail's "Recent" section.
+  // Explicit save. If the conversation hasn't been created yet, this also
+  // creates it (POST /api/conversations) and notifies the parent so the URL
+  // can pick up the new id.
   const save = useCallback(
-    (msgs: RoundtableMessage[]) => {
-      if (msgs.length === 0) {
-        mutate([], { revalidate: false });
-        fetchJson(swrKey, {
+    async (msgs: RoundtableMessage[]) => {
+      // Clear the (existing) conversation
+      if (msgs.length === 0 && conversationId) {
+        mutate(
+          (prev) => (prev ? { ...prev, messages: [] } : prev),
+          { revalidate: false },
+        );
+        fetchJson(conversationMessagesUrl(conversationId), {
           method: 'DELETE',
           onErrorMessage: "Couldn't clear this roundtable on the server.",
         })
@@ -163,18 +155,53 @@ export function RoundtableView({
           .catch(() => {});
         return;
       }
+      if (msgs.length === 0) return; // nothing to save and nothing to clear
+
       const wire = msgs.map(rtToStored);
-      mutate(wire, { revalidate: false });
-      fetchJson(swrKey, {
+
+      // Lazy create on first save
+      let id = conversationId;
+      if (!id) {
+        try {
+          const createRes = await fetchJson<{ conversation: Conversation }>(
+            '/api/conversations',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                kind: 'roundtable',
+                participants: usernames,
+                ...(groupName ? { title: groupName } : {}),
+              }),
+              onErrorMessage:
+                "Couldn't save this roundtable. Replies are visible but won't survive a reload.",
+            },
+          );
+          id = createRes.conversation.id;
+          onConversationCreated(id);
+        } catch {
+          return; // toast already fired
+        }
+      }
+
+      const messagesUrl = conversationMessagesUrl(id);
+      const optimistic = {
+        conversation: { id, kind: 'roundtable' as const, title: groupName ?? null, createdAt: '', updatedAt: '' },
+        participants: usernames,
+        messages: wire,
+      };
+      mutate(optimistic, { revalidate: false });
+      fetchJson(messagesUrl, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: wire }),
-        onErrorMessage: "Couldn't save this roundtable. Replies are visible but won't survive a reload.",
+        onErrorMessage:
+          "Couldn't save this roundtable. Replies are visible but won't survive a reload.",
       })
         .then(() => router.refresh())
         .catch(() => {});
     },
-    [swrKey, mutate, router],
+    [conversationId, usernames, groupName, mutate, router, onConversationCreated],
   );
 
   // Scroll on update — only if user is already near the bottom
@@ -358,8 +385,12 @@ export function RoundtableView({
 
   function clear(): void {
     setMessages([]);
-    mutate([], { revalidate: false });
-    fetchJson(swrKey, {
+    if (!conversationId) return; // compose mode — nothing to clear server-side
+    mutate(
+      (prev) => (prev ? { ...prev, messages: [] } : prev),
+      { revalidate: false },
+    );
+    fetchJson(conversationMessagesUrl(conversationId), {
       method: 'DELETE',
       onErrorMessage: "Couldn't clear this roundtable on the server.",
     })

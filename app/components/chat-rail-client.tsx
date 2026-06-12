@@ -485,9 +485,14 @@ export function ChatRailClient({
               if (c.kind === 'solo') {
                 href = `/${c.members[0]}`;
               } else {
+                // c.key carries the conversation's UUID for roundtables.
+                // Including `conversation=<id>` is what links the rail row
+                // to a stable conversation that can gain/lose participants
+                // without forking.
                 const params = new URLSearchParams({
                   personas: c.members.join(','),
                   mode: 'roundtable',
+                  conversation: c.key,
                 });
                 if (c.groupId) params.set('group', c.groupId);
                 href = `/compare?${params.toString()}`;

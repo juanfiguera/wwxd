@@ -2,7 +2,16 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DELETE, GET, PUT } from '../route';
+import { GET, POST } from '../route';
+import {
+  DELETE as DELETE_ID,
+  GET as GET_ID,
+  PUT as PUT_ID,
+} from '../[id]/route';
+import {
+  POST as POST_PARTICIPANT,
+  DELETE as DELETE_PARTICIPANT,
+} from '../[id]/participants/route';
 
 const tmpDir = mkdtempSync(join(tmpdir(), 'wwxd-convs-route-'));
 const dbPath = resolve(tmpDir, 'wwxd.db');
@@ -16,16 +25,11 @@ afterAll(() => {
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
-function makeUrl(params: { kind?: string; key?: string } = {}): string {
-  const u = new URL('http://test.local/api/conversations');
-  if (params.kind !== undefined) u.searchParams.set('kind', params.kind);
-  if (params.key !== undefined) u.searchParams.set('key', params.key);
-  return u.toString();
+async function paramOf(id: string) {
+  return Promise.resolve({ id });
 }
 
 function makeMessages(prefix: string) {
-  // Each conversation needs unique message IDs because the messages table
-  // has a global primary key on `id`.
   return [
     { id: `${prefix}-u`, role: 'user' as const, speaker: null, text: 'hi', metadata: null },
     {
@@ -38,53 +42,115 @@ function makeMessages(prefix: string) {
   ];
 }
 
-describe('GET', () => {
-  it('returns 400 when kind/key are missing', async () => {
-    const res = await GET(new Request(makeUrl({})));
-    expect(res.status).toBe(400);
+function postReq(body: unknown): Request {
+  return new Request('http://test/api/conversations', {
+    method: 'POST',
+    body: JSON.stringify(body),
   });
+}
 
-  it('returns 400 for an invalid kind', async () => {
-    const res = await GET(new Request(makeUrl({ kind: 'bogus', key: 'k' })));
-    expect(res.status).toBe(400);
-  });
-
-  it('returns empty messages array for an unknown conversation', async () => {
-    const res = await GET(new Request(makeUrl({ kind: 'solo', key: 'never-existed' })));
+describe('POST /api/conversations — solo', () => {
+  it('resolves the persona\'s solo conversation, creating one on first call', async () => {
+    const res = await POST(postReq({ kind: 'solo', persona: 'paulg' }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { messages: unknown[] };
-    expect(body.messages).toEqual([]);
+    const body = (await res.json()) as { conversation: { id: string; kind: string } };
+    expect(body.conversation.kind).toBe('solo');
+    expect(body.conversation.id).toMatch(/^[0-9a-f-]+$/);
+  });
+
+  it('is idempotent — same persona returns the same conversation', async () => {
+    const a = await POST(postReq({ kind: 'solo', persona: 'sama' }));
+    const b = await POST(postReq({ kind: 'solo', persona: 'sama' }));
+    const aBody = (await a.json()) as { conversation: { id: string } };
+    const bBody = (await b.json()) as { conversation: { id: string } };
+    expect(bBody.conversation.id).toBe(aBody.conversation.id);
   });
 });
 
-describe('PUT', () => {
-  it('saves a conversation and is retrievable via GET', async () => {
-    const putRes = await PUT(
-      new Request(makeUrl({ kind: 'solo', key: 'paulg' }), {
-        method: 'PUT',
-        body: JSON.stringify({ messages: makeMessages(Math.random().toString(36).slice(2)) }),
-      }),
+describe('POST /api/conversations — roundtable', () => {
+  it('creates a fresh roundtable with initial participants', async () => {
+    const res = await POST(
+      postReq({ kind: 'roundtable', participants: ['paulg', 'sama'] }),
     );
-    expect(putRes.status).toBe(204);
-
-    const getRes = await GET(new Request(makeUrl({ kind: 'solo', key: 'paulg' })));
-    const body = (await getRes.json()) as {
-      messages: { id: string; role: string; speaker: string | null; text: string }[];
-    };
-    expect(body.messages).toHaveLength(2);
-    expect(body.messages[0].text).toBe('hi');
-    expect(body.messages[1].speaker).toBe('paulg');
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { conversation: { id: string; kind: string } };
+    expect(body.conversation.kind).toBe('roundtable');
   });
 
-  it('overwrites existing messages on subsequent PUT', async () => {
-    await PUT(
-      new Request(makeUrl({ kind: 'solo', key: 'overwrite-test' }), {
-        method: 'PUT',
-        body: JSON.stringify({ messages: makeMessages(Math.random().toString(36).slice(2)) }),
-      }),
+  it('two calls produce two distinct conversations', async () => {
+    const a = await POST(
+      postReq({ kind: 'roundtable', participants: ['x', 'y'] }),
     );
-    await PUT(
-      new Request(makeUrl({ kind: 'solo', key: 'overwrite-test' }), {
+    const b = await POST(
+      postReq({ kind: 'roundtable', participants: ['x', 'y'] }),
+    );
+    const aBody = (await a.json()) as { conversation: { id: string } };
+    const bBody = (await b.json()) as { conversation: { id: string } };
+    expect(bBody.conversation.id).not.toBe(aBody.conversation.id);
+  });
+
+  it('returns 400 for empty participants', async () => {
+    const res = await POST(postReq({ kind: 'roundtable', participants: [] }));
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /api/conversations/[id]', () => {
+  it('loads a conversation with participants + messages', async () => {
+    const created = await POST(
+      postReq({ kind: 'roundtable', participants: ['paulg', 'sama'] }),
+    );
+    const { conversation } = (await created.json()) as { conversation: { id: string } };
+
+    // Seed some messages
+    await PUT_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ messages: makeMessages('seed') }),
+      }),
+      { params: paramOf(conversation.id) },
+    );
+
+    const res = await GET_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`),
+      { params: paramOf(conversation.id) },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      conversation: { id: string };
+      participants: string[];
+      messages: { text: string }[];
+    };
+    expect(body.conversation.id).toBe(conversation.id);
+    expect(body.participants).toEqual(['paulg', 'sama']);
+    expect(body.messages).toHaveLength(2);
+  });
+
+  it('returns 404 for an unknown id', async () => {
+    const res = await GET_ID(
+      new Request('http://test/api/conversations/nope'),
+      { params: paramOf('nope') },
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('PUT /api/conversations/[id]', () => {
+  it('saves messages and overwrites on subsequent PUT', async () => {
+    const created = await POST(
+      postReq({ kind: 'roundtable', participants: ['paulg'] }),
+    );
+    const { conversation } = (await created.json()) as { conversation: { id: string } };
+
+    await PUT_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ messages: makeMessages('first') }),
+      }),
+      { params: paramOf(conversation.id) },
+    );
+    await PUT_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`, {
         method: 'PUT',
         body: JSON.stringify({
           messages: [
@@ -98,77 +164,174 @@ describe('PUT', () => {
           ],
         }),
       }),
+      { params: paramOf(conversation.id) },
     );
-    const res = await GET(new Request(makeUrl({ kind: 'solo', key: 'overwrite-test' })));
-    const body = (await res.json()) as { messages: { text: string }[] };
+    const get = await GET_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`),
+      { params: paramOf(conversation.id) },
+    );
+    const body = (await get.json()) as { messages: { text: string }[] };
     expect(body.messages).toHaveLength(1);
     expect(body.messages[0].text).toBe('replaced');
   });
 
-  it('returns 400 for missing kind/key', async () => {
-    const res = await PUT(
-      new Request(makeUrl({}), {
+  it('returns 404 for unknown id', async () => {
+    const res = await PUT_ID(
+      new Request('http://test/api/conversations/nope', {
         method: 'PUT',
         body: JSON.stringify({ messages: [] }),
       }),
+      { params: paramOf('nope') },
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(404);
   });
 
-  it('returns 400 for malformed JSON body', async () => {
-    const res = await PUT(
-      new Request(makeUrl({ kind: 'solo', key: 'bad-body' }), {
+  it('returns 400 for malformed body', async () => {
+    const created = await POST(
+      postReq({ kind: 'roundtable', participants: ['paulg'] }),
+    );
+    const { conversation } = (await created.json()) as { conversation: { id: string } };
+    const res = await PUT_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`, {
         method: 'PUT',
         body: 'not json',
       }),
-    );
-    expect(res.status).toBe(400);
-  });
-
-  it('returns 400 when the messages array is too large', async () => {
-    const huge = Array.from({ length: 2001 }, (_, i) => ({
-      id: `m${i}`,
-      role: 'user' as const,
-      speaker: null,
-      text: 'x',
-      metadata: null,
-    }));
-    const res = await PUT(
-      new Request(makeUrl({ kind: 'solo', key: 'too-big' }), {
-        method: 'PUT',
-        body: JSON.stringify({ messages: huge }),
-      }),
+      { params: paramOf(conversation.id) },
     );
     expect(res.status).toBe(400);
   });
 });
 
-describe('DELETE', () => {
-  it('removes a conversation', async () => {
-    await PUT(
-      new Request(makeUrl({ kind: 'solo', key: 'doomed' }), {
+describe('DELETE /api/conversations/[id]', () => {
+  it('clears messages but keeps the conversation', async () => {
+    const created = await POST(
+      postReq({ kind: 'roundtable', participants: ['paulg'] }),
+    );
+    const { conversation } = (await created.json()) as { conversation: { id: string } };
+    await PUT_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ messages: makeMessages(Math.random().toString(36).slice(2)) }),
+        body: JSON.stringify({ messages: makeMessages('seed') }),
       }),
+      { params: paramOf(conversation.id) },
     );
-    const delRes = await DELETE(
-      new Request(makeUrl({ kind: 'solo', key: 'doomed' }), { method: 'DELETE' }),
+    const del = await DELETE_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`, {
+        method: 'DELETE',
+      }),
+      { params: paramOf(conversation.id) },
     );
-    expect(delRes.status).toBe(204);
-    const getRes = await GET(new Request(makeUrl({ kind: 'solo', key: 'doomed' })));
-    const body = (await getRes.json()) as { messages: unknown[] };
+    expect(del.status).toBe(204);
+
+    const get = await GET_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`),
+      { params: paramOf(conversation.id) },
+    );
+    expect(get.status).toBe(200); // conversation still exists
+    const body = (await get.json()) as { messages: unknown[] };
     expect(body.messages).toEqual([]);
   });
 
-  it('returns 204 even if nothing was there to delete', async () => {
-    const res = await DELETE(
-      new Request(makeUrl({ kind: 'solo', key: 'never-there' }), { method: 'DELETE' }),
+  it('returns 404 for unknown id', async () => {
+    const res = await DELETE_ID(
+      new Request('http://test/api/conversations/nope', { method: 'DELETE' }),
+      { params: paramOf('nope') },
     );
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('participants endpoint', () => {
+  it('addParticipant: a new persona joins without forking the conversation', async () => {
+    const created = await POST(
+      postReq({ kind: 'roundtable', participants: ['paulg', 'sama'] }),
+    );
+    const { conversation } = (await created.json()) as { conversation: { id: string } };
+
+    // Seed messages from the original lineup
+    await PUT_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ messages: makeMessages('initial') }),
+      }),
+      { params: paramOf(conversation.id) },
+    );
+
+    const res = await POST_PARTICIPANT(
+      new Request(`http://test/api/conversations/${conversation.id}/participants`, {
+        method: 'POST',
+        body: JSON.stringify({ username: 'naval' }),
+      }),
+      { params: paramOf(conversation.id) },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { participants: string[] };
+    expect(body.participants).toEqual(['paulg', 'sama', 'naval']);
+
+    // Crucial regression check: the conversation kept the original messages.
+    // The old key-based model would have lost or duplicated these.
+    const get = await GET_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`),
+      { params: paramOf(conversation.id) },
+    );
+    const getBody = (await get.json()) as { messages: unknown[] };
+    expect(getBody.messages).toHaveLength(2);
   });
 
-  it('returns 400 for missing params', async () => {
-    const res = await DELETE(new Request(makeUrl({}), { method: 'DELETE' }));
+  it('addParticipant on a solo conversation returns 400', async () => {
+    const solo = await POST(postReq({ kind: 'solo', persona: 'paulg' }));
+    const { conversation } = (await solo.json()) as { conversation: { id: string } };
+    const res = await POST_PARTICIPANT(
+      new Request(`http://test/api/conversations/${conversation.id}/participants`, {
+        method: 'POST',
+        body: JSON.stringify({ username: 'sama' }),
+      }),
+      { params: paramOf(conversation.id) },
+    );
     expect(res.status).toBe(400);
+  });
+
+  it('removeParticipant marks left_at without dropping history', async () => {
+    const created = await POST(
+      postReq({ kind: 'roundtable', participants: ['paulg', 'sama'] }),
+    );
+    const { conversation } = (await created.json()) as { conversation: { id: string } };
+    await PUT_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          messages: [
+            {
+              id: 'sam-said',
+              role: 'assistant' as const,
+              speaker: 'sama',
+              text: 'leaving soon',
+              metadata: null,
+            },
+          ],
+        }),
+      }),
+      { params: paramOf(conversation.id) },
+    );
+
+    const res = await DELETE_PARTICIPANT(
+      new Request(
+        `http://test/api/conversations/${conversation.id}/participants?username=sama`,
+        { method: 'DELETE' },
+      ),
+      { params: paramOf(conversation.id) },
+    );
+    expect(res.status).toBe(200);
+
+    const get = await GET_ID(
+      new Request(`http://test/api/conversations/${conversation.id}`),
+      { params: paramOf(conversation.id) },
+    );
+    const body = (await get.json()) as {
+      participants: string[];
+      messages: { text: string }[];
+    };
+    expect(body.participants).toEqual(['paulg']);
+    expect(body.messages).toHaveLength(1); // sam's past message kept
   });
 });

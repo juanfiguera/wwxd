@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   conversationFetcher,
+  conversationMessagesUrl,
   roundtableKey,
   soloKey,
 } from '../conversation-cache';
@@ -14,51 +15,92 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('soloKey', () => {
-  it('builds the conversations URL with kind=solo + encoded key', () => {
-    expect(soloKey('paulg')).toBe('/api/conversations?kind=solo&key=paulg');
+describe('SWR keys', () => {
+  it('soloKey returns the solo virtual key for a persona', () => {
+    expect(soloKey('paulg')).toBe('solo:paulg');
   });
 
-  it('URL-encodes usernames with special characters', () => {
-    expect(soloKey('with space')).toBe('/api/conversations?kind=solo&key=with%20space');
+  it('roundtableKey returns the roundtable key for a UUID', () => {
+    expect(roundtableKey('abc-123')).toBe('roundtable:abc-123');
   });
-});
 
-describe('roundtableKey', () => {
-  it('builds the conversations URL with kind=roundtable', () => {
-    expect(roundtableKey('paulg,sama')).toBe(
-      '/api/conversations?kind=roundtable&key=paulg%2Csama',
-    );
+  it('conversationMessagesUrl encodes the UUID', () => {
+    expect(conversationMessagesUrl('abc 123')).toBe('/api/conversations/abc%20123');
   });
 });
 
 describe('conversationFetcher', () => {
-  it('returns the messages array on 200 JSON', async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ messages: [{ id: 'm', text: 'hi' }] }), {
-        status: 200,
-      }),
+  it('solo: POSTs to create-or-find then GETs the conversation', async () => {
+    const mocked = vi.mocked(globalThis.fetch);
+    // First call: POST /api/conversations → conversation
+    mocked.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          conversation: {
+            id: 'uuid-1',
+            kind: 'solo',
+            title: null,
+            createdAt: '',
+            updatedAt: '',
+          },
+        }),
+        { status: 200 },
+      ),
     );
-    const result = await conversationFetcher('/api/conversations?kind=solo&key=a');
-    expect(result).toEqual([{ id: 'm', text: 'hi' }]);
+    // Second call: GET /api/conversations/uuid-1 → payload
+    mocked.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          conversation: {
+            id: 'uuid-1',
+            kind: 'solo',
+            title: null,
+            createdAt: '',
+            updatedAt: '',
+          },
+          participants: ['paulg'],
+          messages: [{ id: 'm1', role: 'user', speaker: null, text: 'hi', metadata: null }],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await conversationFetcher('solo:paulg');
+    expect(result.conversation.id).toBe('uuid-1');
+    expect(result.participants).toEqual(['paulg']);
+    expect(result.messages).toHaveLength(1);
+
+    // Sanity: first call POSTed with the solo + persona body
+    expect(mocked.mock.calls[0][0]).toBe('/api/conversations');
+    const init = mocked.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe('POST');
+    expect(init.body).toContain('"kind":"solo"');
+    expect(init.body).toContain('"persona":"paulg"');
   });
 
-  it('returns [] on non-2xx (no throw)', async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(new Response('boom', { status: 500 }));
-    expect(await conversationFetcher('/x')).toEqual([]);
+  it('roundtable: GETs the conversation by UUID', async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          conversation: {
+            id: 'rt-1',
+            kind: 'roundtable',
+            title: null,
+            createdAt: '',
+            updatedAt: '',
+          },
+          participants: ['paulg', 'sama'],
+          messages: [],
+        }),
+        { status: 200 },
+      ),
+    );
+    const result = await conversationFetcher('roundtable:rt-1');
+    expect(result.conversation.id).toBe('rt-1');
+    expect(result.participants).toEqual(['paulg', 'sama']);
   });
 
-  it('returns [] when the body has no messages field', async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ other: 'value' }), { status: 200 }),
-    );
-    expect(await conversationFetcher('/x')).toEqual([]);
-  });
-
-  it('returns [] when the messages field is not an array', async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ messages: 'not an array' }), { status: 200 }),
-    );
-    expect(await conversationFetcher('/x')).toEqual([]);
+  it('throws on an unknown key prefix', async () => {
+    await expect(conversationFetcher('weird:thing')).rejects.toThrow(/Unknown/);
   });
 });

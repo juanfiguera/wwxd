@@ -1,69 +1,59 @@
 import { z } from 'zod';
 import {
-  clearConversation,
-  loadConversation,
-  saveConversation,
-  type ConversationKind,
-  type StoredMessage,
+  createRoundtable,
+  getOrCreateSolo,
+  listConversations,
 } from '@/lib/db';
 
-const Kind = z.enum(['solo', 'roundtable']);
-
-const Message = z.object({
-  id: z.string().min(1),
-  role: z.enum(['user', 'assistant']),
-  speaker: z.string().nullable(),
-  text: z.string(),
-  metadata: z.unknown().nullable(),
-});
-
-const PutBody = z.object({
-  messages: z.array(Message).max(2000),
-});
-
-function parseParams(req: Request): { kind: ConversationKind; key: string } | { error: string } {
-  const url = new URL(req.url);
-  const kindRaw = url.searchParams.get('kind');
-  const key = url.searchParams.get('key');
-  if (!kindRaw || !key) return { error: 'Missing kind or key' };
-  const kindParsed = Kind.safeParse(kindRaw);
-  if (!kindParsed.success) return { error: 'Invalid kind' };
-  if (key.length === 0 || key.length > 500) return { error: 'Invalid key' };
-  return { kind: kindParsed.data, key };
-}
+const CreateBody = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('solo'),
+    persona: z.string().min(1).max(40),
+  }),
+  z.object({
+    kind: z.literal('roundtable'),
+    participants: z
+      .array(z.string().min(1).max(40))
+      .min(1)
+      .max(20),
+    title: z.string().max(120).optional(),
+  }),
+]);
 
 export async function GET(req: Request): Promise<Response> {
-  const parsed = parseParams(req);
-  if ('error' in parsed) return Response.json({ error: parsed.error }, { status: 400 });
-  const messages = loadConversation(parsed.kind, parsed.key);
-  return Response.json({ messages });
+  const url = new URL(req.url);
+  const kindRaw = url.searchParams.get('kind');
+  const limitRaw = url.searchParams.get('limit');
+  let kind: 'solo' | 'roundtable' | undefined;
+  if (kindRaw === 'solo' || kindRaw === 'roundtable') kind = kindRaw;
+  const limit = limitRaw ? Math.max(1, Math.min(500, Number(limitRaw))) : undefined;
+  const conversations = listConversations({ kind, limit });
+  return Response.json({ conversations });
 }
 
-export async function PUT(req: Request): Promise<Response> {
-  const parsed = parseParams(req);
-  if ('error' in parsed) return Response.json({ error: parsed.error }, { status: 400 });
+/**
+ * POST /api/conversations
+ *
+ * For solo: resolves (creating if needed) the single solo conversation for
+ * the persona. Idempotent — repeated calls return the same conversation.
+ *
+ * For roundtable: creates a brand-new conversation. Two POSTs with the same
+ * participant list produce two distinct conversations.
+ */
+export async function POST(req: Request): Promise<Response> {
   const raw = await req.json().catch(() => null);
-  const body = PutBody.safeParse(raw);
-  if (!body.success) {
+  const parsed = CreateBody.safeParse(raw);
+  if (!parsed.success) {
     return Response.json(
-      { error: body.error.issues[0]?.message ?? 'Invalid body' },
+      { error: parsed.error.issues[0]?.message ?? 'Invalid request' },
       { status: 400 },
     );
   }
-  const messages: StoredMessage[] = body.data.messages.map((m) => ({
-    id: m.id,
-    role: m.role,
-    speaker: m.speaker,
-    text: m.text,
-    metadata: m.metadata,
-  }));
-  saveConversation(parsed.kind, parsed.key, messages);
-  return new Response(null, { status: 204 });
-}
-
-export async function DELETE(req: Request): Promise<Response> {
-  const parsed = parseParams(req);
-  if ('error' in parsed) return Response.json({ error: parsed.error }, { status: 400 });
-  clearConversation(parsed.kind, parsed.key);
-  return new Response(null, { status: 204 });
+  const body = parsed.data;
+  if (body.kind === 'solo') {
+    const conv = getOrCreateSolo(body.persona);
+    return Response.json({ conversation: conv }, { status: 200 });
+  }
+  const conv = createRoundtable(body.participants, body.title);
+  return Response.json({ conversation: conv }, { status: 201 });
 }
