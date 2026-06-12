@@ -19,6 +19,9 @@
   <a href="#contributing">Contribute</a>
 </p>
 
+> [!IMPORTANT]
+> **wwxd generates AI _impressions_ of real people.** The personas aren't the people they reference, aren't endorsed by them, and will sometimes misrepresent their views. Don't quote outputs. Don't take advice from them. Treat the whole thing as well-researched fan fiction.
+
 ## Get going
 
 Three commands and you're in.
@@ -30,9 +33,6 @@ cp .env.example .env.local      # add at least one LLM provider key
 pnpm install
 pnpm dev                         # → http://localhost:3000
 ```
-
-> [!IMPORTANT]
-> **wwxd generates AI _impressions_ of real people.** The personas aren't the people they reference, aren't endorsed by them, and will sometimes misrepresent their views. Don't quote outputs. Don't take advice from them. Treat the whole thing as well-researched fan fiction.
 
 ## What you get
 
