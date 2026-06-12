@@ -111,6 +111,9 @@ function PlainRow({
   preview,
   memberUsernames,
   memberDisplayNames,
+  onDelete,
+  deleteLabel,
+  isDeleting,
 }: {
   href: string;
   active: boolean;
@@ -122,12 +125,16 @@ function PlainRow({
    *  member display names instead of "N messages · ago". */
   memberUsernames?: string[];
   memberDisplayNames?: string[];
+  /** Optional: when provided, render a small trash button visible on hover.
+   *  The handler runs with a fresh MouseEvent so it can prevent the Link nav. */
+  onDelete?: () => void;
+  deleteLabel?: string;
+  isDeleting?: boolean;
 }) {
   const hasMembers = !!memberUsernames && memberUsernames.length > 0;
   const memberNames = hasMembers
     ? (memberDisplayNames ?? memberUsernames).join(', ')
     : null;
-  // Use native title for accessibility / screen readers too.
   const titleAttr = memberNames ?? undefined;
   return (
     <Link
@@ -153,13 +160,15 @@ function PlainRow({
           <span
             className={`absolute inset-0 truncate transition-opacity duration-150 ${
               hasMembers ? 'group-hover/row:opacity-0' : ''
-            }`}
+            } ${onDelete ? 'group-hover/row:pr-7' : ''}`}
           >
             {preview}
           </span>
           {hasMembers && (
             <span
-              className="absolute inset-0 truncate font-medium text-[var(--ink)] opacity-0 transition-opacity duration-150 group-hover/row:opacity-100"
+              className={`absolute inset-0 truncate font-medium text-[var(--ink)] opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 ${
+                onDelete ? 'group-hover/row:pr-7' : ''
+              }`}
               aria-hidden
             >
               {memberNames}
@@ -167,6 +176,41 @@ function PlainRow({
           )}
         </span>
       </span>
+      {onDelete && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onDelete();
+          }}
+          disabled={isDeleting}
+          aria-label={deleteLabel ?? 'Delete'}
+          title={deleteLabel ?? 'Delete'}
+          className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-[var(--ink-faint)] opacity-0 transition group-hover/row:opacity-100 hover:bg-[var(--paper-2)] hover:text-red-600 disabled:opacity-30"
+        >
+          {isDeleting ? (
+            <span className="text-[10px]">...</span>
+          ) : (
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M3 6h18" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6M14 11v6" />
+              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+            </svg>
+          )}
+        </button>
+      )}
     </Link>
   );
 }
@@ -327,6 +371,13 @@ export function ChatRailClient({
   const [query, setQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Optimistic delete tracking for recent conversations: keep the row hidden
+  // locally as soon as the request 2xxs (router.refresh re-renders the rail
+  // shortly after, but the row would briefly reappear without this).
+  const [deletingConv, setDeletingConv] = useState<string | null>(null);
+  const [hiddenConvIds, setHiddenConvIds] = useState<Set<string>>(new Set());
+  const router = useRouter();
+
   useEffect(() => {
     if (searchOpen) searchInputRef.current?.focus();
   }, [searchOpen]);
@@ -374,15 +425,37 @@ export function ChatRailClient({
   );
   const visibleRecent = useMemo(
     () =>
-      filterable
+      (filterable
         ? recent.filter(
             (r) =>
               r.displayName.toLowerCase().includes(q) ||
               r.key.toLowerCase().includes(q),
           )
-        : recent,
-    [recent, q, filterable],
+        : recent
+      ).filter((r) => !hiddenConvIds.has(r.key)),
+    [recent, q, filterable, hiddenConvIds],
   );
+
+  async function deleteConversation(convId: string, label: string): Promise<void> {
+    if (deletingConv) return;
+    if (!window.confirm(`Remove this conversation with ${label} from your recents?`)) return;
+    setDeletingConv(convId);
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(convId)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setHiddenConvIds((prev) => {
+          const next = new Set(prev);
+          next.add(convId);
+          return next;
+        });
+        router.refresh();
+      }
+    } finally {
+      setDeletingConv(null);
+    }
+  }
 
   const noResults =
     filterable &&
@@ -520,6 +593,9 @@ export function ChatRailClient({
                   }
                   memberUsernames={c.kind === 'solo' ? undefined : c.members}
                   memberDisplayNames={c.kind === 'solo' ? undefined : c.memberDisplayNames}
+                  onDelete={() => deleteConversation(c.key, c.displayName)}
+                  deleteLabel={`Remove ${c.displayName} from recents`}
+                  isDeleting={deletingConv === c.key}
                 />
               );
             })}

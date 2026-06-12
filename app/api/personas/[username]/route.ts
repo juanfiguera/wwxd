@@ -5,11 +5,13 @@ import { removePersonaFromAllGroups } from '@/lib/groups';
 import { corpusPath } from '@/lib/persona';
 import { embeddingsPath } from '@/lib/retrieve';
 
+// Hyphens allowed so prior-only persona slugs like "simon-volibar" pass
+// validation. Matches the regex on POST /api/personas.
 const UsernameParam = z
   .string()
   .min(1)
   .max(40)
-  .regex(/^[a-zA-Z0-9_]+$/, 'Invalid username');
+  .regex(/^[a-zA-Z0-9_-]+$/, 'Invalid username');
 
 async function tryUnlink(path: string): Promise<boolean> {
   try {
