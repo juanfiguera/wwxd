@@ -91,6 +91,26 @@ describe('POST /api/groups', () => {
     const res = await POST(postReq({ name: 'Huge', personas }));
     expect(res.status).toBe(400);
   });
+
+  it('rejects a duplicate name with 400', async () => {
+    await POST(postReq({ name: 'Board of Directors', personas: ['paulg'] }));
+    const res = await POST(postReq({ name: 'Board of Directors', personas: ['sama'] }));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/already exists/i);
+  });
+
+  it('treats duplicate names case-insensitively', async () => {
+    await POST(postReq({ name: 'Board of Directors', personas: ['paulg'] }));
+    const res = await POST(postReq({ name: 'BOARD OF DIRECTORS', personas: ['sama'] }));
+    expect(res.status).toBe(400);
+  });
+
+  it('treats duplicate names with surrounding whitespace as collisions', async () => {
+    await POST(postReq({ name: 'Board', personas: ['paulg'] }));
+    const res = await POST(postReq({ name: '  Board  ', personas: ['sama'] }));
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('GET /api/groups/[id]', () => {
@@ -165,6 +185,52 @@ describe('PATCH /api/groups/[id]', () => {
       { params: paramOf('x') },
     );
     expect(res.status).toBe(400);
+  });
+
+  it('rejects a rename that collides with another group', async () => {
+    const a = await POST(postReq({ name: 'Founders', personas: ['paulg'] }));
+    const b = await POST(postReq({ name: 'Board', personas: ['sama'] }));
+    const { group: groupB } = (await b.json()) as { group: { id: string } };
+
+    const res = await PATCH_ID(
+      new Request('http://test/api/groups/' + groupB.id, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: 'Founders' }),
+      }),
+      { params: paramOf(groupB.id) },
+    );
+    expect(res.status).toBe(400);
+    expect(a.status).toBe(201); // sanity
+  });
+
+  it('allows renaming a group to its own name (no-op rename)', async () => {
+    const created = await POST(postReq({ name: 'Board', personas: ['x'] }));
+    const { group } = (await created.json()) as { group: { id: string } };
+
+    const res = await PATCH_ID(
+      new Request('http://test/api/groups/' + group.id, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: 'Board' }),
+      }),
+      { params: paramOf(group.id) },
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('allows renaming a group to a different casing of its own name', async () => {
+    const created = await POST(postReq({ name: 'Board', personas: ['x'] }));
+    const { group } = (await created.json()) as { group: { id: string } };
+
+    const res = await PATCH_ID(
+      new Request('http://test/api/groups/' + group.id, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: 'BOARD' }),
+      }),
+      { params: paramOf(group.id) },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { group: { name: string } };
+    expect(body.group.name).toBe('BOARD');
   });
 });
 

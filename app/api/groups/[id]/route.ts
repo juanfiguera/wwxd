@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { deleteGroup, getGroup, updateGroup } from '@/lib/groups';
+import {
+  deleteGroup,
+  DuplicateGroupNameError,
+  getGroup,
+  updateGroup,
+} from '@/lib/groups';
 
 const PatchBody = z.object({
   name: z.string().min(1).max(60).optional(),
@@ -33,9 +38,16 @@ export async function PATCH(
       { status: 400 },
     );
   }
-  const group = await updateGroup(id, parsed.data);
-  if (!group) return Response.json({ error: 'Not found' }, { status: 404 });
-  return Response.json({ group });
+  try {
+    const group = await updateGroup(id, parsed.data);
+    if (!group) return Response.json({ error: 'Not found' }, { status: 404 });
+    return Response.json({ group });
+  } catch (err) {
+    if (err instanceof DuplicateGroupNameError) {
+      return Response.json({ error: err.message }, { status: 400 });
+    }
+    throw err;
+  }
 }
 
 export async function DELETE(

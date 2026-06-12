@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { createGroup, listGroups } from '@/lib/groups';
+import { createGroup, DuplicateGroupNameError, listGroups } from '@/lib/groups';
 
 const CreateBody = z.object({
   name: z.string().min(1).max(60),
@@ -20,6 +20,13 @@ export async function POST(req: Request): Promise<Response> {
       { status: 400 },
     );
   }
-  const group = await createGroup(parsed.data);
-  return Response.json({ group }, { status: 201 });
+  try {
+    const group = await createGroup(parsed.data);
+    return Response.json({ group }, { status: 201 });
+  } catch (err) {
+    if (err instanceof DuplicateGroupNameError) {
+      return Response.json({ error: err.message }, { status: 400 });
+    }
+    throw err;
+  }
 }

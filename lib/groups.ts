@@ -12,6 +12,31 @@ export type Group = {
 
 type GroupsFile = { groups: Group[] };
 
+/**
+ * Thrown by createGroup / updateGroup when the requested name collides
+ * (case-insensitively) with an existing group. The route handlers catch
+ * this and surface the message as a 400 so the UI can toast it.
+ */
+export class DuplicateGroupNameError extends Error {
+  public readonly groupName: string;
+  constructor(groupName: string) {
+    super(`A group called "${groupName}" already exists. Pick a different name.`);
+    this.name = 'DuplicateGroupNameError';
+    this.groupName = groupName;
+  }
+}
+
+function nameCollides(
+  groups: Group[],
+  name: string,
+  excludeId?: string,
+): boolean {
+  const lower = name.trim().toLowerCase();
+  return groups.some(
+    (g) => g.id !== excludeId && g.name.trim().toLowerCase() === lower,
+  );
+}
+
 function groupsPath(): string {
   if (process.env.WWXD_GROUPS_PATH) return process.env.WWXD_GROUPS_PATH;
   return resolve(process.cwd(), 'data', 'groups.json');
@@ -38,10 +63,14 @@ export async function createGroup(input: {
   personas: string[];
 }): Promise<Group> {
   const groups = await listGroups();
+  const trimmedName = input.name.trim();
+  if (nameCollides(groups, trimmedName)) {
+    throw new DuplicateGroupNameError(trimmedName);
+  }
   const now = new Date().toISOString();
   const group: Group = {
     id: randomUUID(),
-    name: input.name.trim(),
+    name: trimmedName,
     personas: [...input.personas],
     createdAt: now,
     updatedAt: now,
@@ -67,9 +96,18 @@ export async function updateGroup(
   const idx = groups.findIndex((g) => g.id === id);
   if (idx === -1) return null;
   const current = groups[idx];
+  const nextName = update.name?.trim() ?? current.name;
+  // Skip the collision check when the name isn't changing (or is changing
+  // to a different casing of itself) — saving a group without renaming it
+  // should never error out on uniqueness.
+  if (nextName.toLowerCase() !== current.name.toLowerCase()) {
+    if (nameCollides(groups, nextName, id)) {
+      throw new DuplicateGroupNameError(nextName);
+    }
+  }
   const updated: Group = {
     ...current,
-    name: update.name?.trim() ?? current.name,
+    name: nextName,
     personas: update.personas ? [...update.personas] : current.personas,
     updatedAt: new Date().toISOString(),
   };

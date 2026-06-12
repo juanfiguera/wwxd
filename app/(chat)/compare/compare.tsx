@@ -301,11 +301,35 @@ export function Compare({
   const [nameEditing, setNameEditing] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [savingName, setSavingName] = useState(false);
+  const [existingNames, setExistingNames] = useState<{ id: string; name: string }[]>([]);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (nameEditing) nameInputRef.current?.focus();
   }, [nameEditing]);
+
+  // Pull the list of existing group names when the rename/save input opens so
+  // we can warn inline if the user types a name that's already taken. The API
+  // also enforces uniqueness server-side, but a live hint saves a round trip
+  // and prevents the toast-after-submit jank.
+  useEffect(() => {
+    if (!nameEditing) return;
+    let cancelled = false;
+    fetchJson<{ groups: { id: string; name: string }[] }>('/api/groups', {
+      onErrorMessage: '', // silent — the live hint is best-effort
+    })
+      .then((res) => {
+        if (cancelled) return;
+        setExistingNames(res.groups.map((g) => ({ id: g.id, name: g.name })));
+      })
+      .catch(() => {
+        // ignored — input still works, just no live hint
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [nameEditing]);
+
 
   function startNaming(initial = '') {
     setNameInput(initial);
@@ -360,6 +384,18 @@ export function Compare({
     currentGroup.personas.every((u) => selectedUsernames.includes(u))
       ? currentGroup
       : null;
+
+  // Live duplicate hint: trim + lowercase + exclude the current group's own
+  // name (renaming a group to its own value shouldn't flag). Mirrors the API
+  // check in lib/groups.ts so users see the same rule client-side.
+  const trimmedNameInput = nameInput.trim();
+  const nameAlreadyTaken =
+    trimmedNameInput.length > 0 &&
+    existingNames.some(
+      (g) =>
+        g.id !== matchedGroup?.id &&
+        g.name.trim().toLowerCase() === trimmedNameInput.toLowerCase(),
+    );
 
   async function saveGroupName(e: React.FormEvent) {
     e.preventDefault();
@@ -450,7 +486,11 @@ export function Compare({
               )}
             </h1>
             {nameEditing ? (
-              <form onSubmit={saveGroupName} className="flex items-center gap-1.5">
+              <form
+                onSubmit={saveGroupName}
+                className="flex flex-wrap items-center gap-1.5"
+                aria-describedby={nameAlreadyTaken ? 'group-name-hint' : undefined}
+              >
                 <input
                   ref={nameInputRef}
                   value={nameInput}
@@ -463,11 +503,16 @@ export function Compare({
                   }}
                   placeholder={matchedGroup ? 'Group name' : 'Name this group'}
                   maxLength={60}
-                  className="rounded-full border border-[var(--line)] bg-white px-2.5 py-1 text-xs text-[var(--ink)] outline-none focus:border-[var(--ink)]"
+                  aria-invalid={nameAlreadyTaken || undefined}
+                  className={`rounded-full border bg-white px-2.5 py-1 text-xs text-[var(--ink)] outline-none ${
+                    nameAlreadyTaken
+                      ? 'border-red-500 focus:border-red-500'
+                      : 'border-[var(--line)] focus:border-[var(--ink)]'
+                  }`}
                 />
                 <button
                   type="submit"
-                  disabled={!nameInput.trim() || savingName}
+                  disabled={!nameInput.trim() || savingName || nameAlreadyTaken}
                   className="rounded-full bg-[var(--ink)] px-2.5 py-1 font-display text-xs font-bold text-white disabled:opacity-50"
                 >
                   {savingName ? 'saving…' : 'save'}
@@ -479,6 +524,14 @@ export function Compare({
                 >
                   cancel
                 </button>
+                {nameAlreadyTaken && (
+                  <span
+                    id="group-name-hint"
+                    className="basis-full text-[11px] text-red-600"
+                  >
+                    Already taken by another group.
+                  </span>
+                )}
               </form>
             ) : selected.length >= 2 ? (
               matchedGroup ? (
