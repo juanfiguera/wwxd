@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-let mockPath = '/app';
+let mockPath = '/';
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPath,
 }));
@@ -9,7 +9,7 @@ vi.mock('next/navigation', () => ({
 import { ChatShell } from '../chat-shell';
 
 beforeEach(() => {
-  mockPath = '/app';
+  mockPath = '/';
 });
 afterEach(() => {
   // The shell locks body scroll while drawer is open; make sure each test
@@ -84,7 +84,7 @@ describe('ChatShell — mobile drawer behavior', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /open navigation/i }));
     expect(screen.getByRole('button', { name: /close navigation/i })).toBeInTheDocument();
-    mockPath = '/app/elonmusk';
+    mockPath = '/elonmusk';
     rerender(
       <ChatShell rail={<div>rail</div>}>
         <div>content</div>

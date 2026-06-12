@@ -13,15 +13,32 @@ import { corpusPath, type Corpus } from '@/lib/persona';
 
 export const maxDuration = 300;
 
+// Slugs that would shadow first-class top-level routes if used as a persona
+// username. The chat lives at `/<slug>`, so `/compare`, `/evals`, etc. need
+// to stay reachable. Add new entries here whenever a new top-level route is
+// introduced. Case-insensitive comparison since the regex allows mixed case.
+const RESERVED_SLUGS = new Set([
+  'api',
+  'compare',
+  'evals',
+  'settings',
+  '_next',
+  'new',
+  'groups',
+]);
+
 const Body = z.object({
   username: z
     .string()
     .min(1)
     .max(40)
     // Hyphens allowed so prior-only slugs like "steve-jobs" work alongside
-    // X-handle slugs. Filesystem (data/<slug>.json) and the /app/<slug>
-    // route both handle hyphens fine.
-    .regex(/^[a-zA-Z0-9_-]+$/, 'Use only letters, numbers, hyphens, and underscores'),
+    // X-handle slugs. Filesystem (data/<slug>.json) and the /<slug> route
+    // both handle hyphens fine.
+    .regex(/^[a-zA-Z0-9_-]+$/, 'Use only letters, numbers, hyphens, and underscores')
+    .refine((s) => !RESERVED_SLUGS.has(s.toLowerCase()), {
+      message: 'That slug is reserved by a built-in route. Try a different name.',
+    }),
   mode: z.enum(['latest', 'deep', 'skip', 'prior-only']).optional(),
   // Legacy field — translated to mode below
   deep: z.boolean().optional(),

@@ -110,7 +110,7 @@ function PersonaCard({
     >
       <div className="relative">
         <Link
-          href={`/app/${persona.username}`}
+          href={`/${persona.username}`}
           className="block p-4 pr-56 hover:bg-[var(--paper-2)]/40"
         >
           <div className="flex items-center gap-3">
@@ -309,7 +309,7 @@ export function PersonaList({ personas }: { personas: PersonaSummary[] }) {
       if (next.length > 0) params.set('selected', next.join(','));
       else params.delete('selected');
       const qs = params.toString();
-      router.replace(qs ? `/app?${qs}` : '/app', { scroll: false });
+      router.replace(qs ? `/?${qs}` : '/', { scroll: false });
     },
     [router, searchParams],
   );
@@ -333,9 +333,9 @@ export function PersonaList({ personas }: { personas: PersonaSummary[] }) {
   const [saving, setSaving] = useState(false);
 
   const groupHref = useMemo(() => {
-    if (selectedUsernames.length === 0) return '/app/compare';
+    if (selectedUsernames.length === 0) return '/compare';
     const qs = new URLSearchParams({ personas: selectedUsernames.join(',') }).toString();
-    return `/app/compare?${qs}`;
+    return `/compare?${qs}`;
   }, [selectedUsernames]);
 
   async function onSaveGroup(e: React.FormEvent) {

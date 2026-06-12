@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-let mockPath = '/app';
+let mockPath = '/';
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPath,
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -76,7 +76,7 @@ const savedFetch = globalThis.fetch;
 const savedConfirm = globalThis.confirm;
 
 beforeEach(() => {
-  mockPath = '/app';
+  mockPath = '/';
   globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
   globalThis.confirm = vi.fn().mockReturnValue(true);
 });
@@ -112,21 +112,21 @@ describe('ChatRailClient — recent', () => {
     expect(screen.getByText(/No conversations yet/)).toBeInTheDocument();
   });
 
-  it('links solo recent rows to /app/<username>', () => {
+  it('links solo recent rows to /<username>', () => {
     render(
       <ChatRailClient personas={personas} groups={groups} recent={recent} />,
     );
     const link = screen.getByText('Paul Graham').closest('a');
-    expect(link?.getAttribute('href')).toBe('/app/paulg');
+    expect(link?.getAttribute('href')).toBe('/paulg');
   });
 
-  it('links group recent rows to /app/compare?... with group id', () => {
+  it('links group recent rows to /compare?... with group id', () => {
     render(
       <ChatRailClient personas={personas} groups={groups} recent={recent} />,
     );
     // The first match is in the recent row (hover-text comes later in DOM).
     const link = screen.getAllByText('Paul Graham, Sam Altman')[0].closest('a');
-    expect(link?.getAttribute('href')).toMatch(/^\/app\/compare\?/);
+    expect(link?.getAttribute('href')).toMatch(/^\/compare\?/);
     expect(link?.getAttribute('href')).toContain('group=g1');
   });
 });
@@ -196,8 +196,8 @@ describe('ChatRailClient — footer', () => {
     expect(settings.className).toMatch(/shadow/);
   });
 
-  it('does not highlight Settings on /app/<username>', () => {
-    mockPath = '/app/paulg';
+  it('does not highlight Settings on /<username>', () => {
+    mockPath = '/paulg';
     render(
       <ChatRailClient personas={personas} groups={groups} recent={recent} />,
     );

@@ -349,7 +349,7 @@ export function Compare({
         params.set('group', currentGroup.id);
       }
       const qs = params.toString();
-      router.replace(qs ? `/app/compare?${qs}` : '/app/compare');
+      router.replace(qs ? `/compare?${qs}` : '/compare');
     },
     [router, currentGroup],
   );
@@ -393,7 +393,7 @@ export function Compare({
         params.set('personas', selectedUsernames.join(','));
         if (mode !== 'compare') params.set('mode', mode);
         params.set('group', group.id);
-        router.replace(`/app/compare?${params.toString()}`);
+        router.replace(`/compare?${params.toString()}`);
         router.refresh();
       }
     } catch {

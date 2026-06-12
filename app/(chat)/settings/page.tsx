@@ -151,7 +151,7 @@ export default function SettingsPage() {
           <SectionLabel>Quality</SectionLabel>
           <div className="space-y-2">
             <SettingsCard
-              href="/app/evals"
+              href="/evals"
               title="Evals"
               description="Score how well each persona sounds like the real person."
             />

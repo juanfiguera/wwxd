@@ -58,13 +58,13 @@ describe('ConversationsSection', () => {
     expect(screen.getByText('Paul Graham, Sam Altman')).toBeInTheDocument();
   });
 
-  it('links solo to /app/<username> and roundtable to /app/compare?...', () => {
+  it('links solo to /<username> and roundtable to /compare?...', () => {
     render(<ConversationsSection conversations={[solo, round]} />);
     const links = screen.getAllByRole('link');
-    expect(links.find((a) => a.getAttribute('href')?.startsWith('/app/paulg'))).toBeTruthy();
+    expect(links.find((a) => a.getAttribute('href')?.startsWith('/paulg'))).toBeTruthy();
     expect(
       links.find((a) =>
-        a.getAttribute('href')?.startsWith('/app/compare?personas=paulg%2Csama'),
+        a.getAttribute('href')?.startsWith('/compare?personas=paulg%2Csama'),
       ),
     ).toBeTruthy();
   });

@@ -73,11 +73,11 @@ describe('GroupsSection', () => {
     expect(screen.getByText(/no members available/i)).toBeInTheDocument();
   });
 
-  it('links to /app/compare with the group params for roundtable', () => {
+  it('links to /compare with the group params for roundtable', () => {
     render(<GroupsSection groups={[makeGroup({})]} personas={personas} />);
     const link = screen.getByText('Founders').closest('a');
     expect(link?.getAttribute('href')).toBe(
-      '/app/compare?personas=paulg%2Csama&group=g1&mode=roundtable',
+      '/compare?personas=paulg%2Csama&group=g1&mode=roundtable',
     );
   });
 

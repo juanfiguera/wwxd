@@ -63,7 +63,7 @@ export function GroupsSection({
               key={g.id}
               className="flex items-center gap-3 rounded-[var(--r-lg)] border border-[var(--line)] bg-white p-3 transition hover:border-[var(--ink)] hover:shadow-[var(--shadow-sm)]"
             >
-              <Link href={`/app/compare?${qs}`} className="flex min-w-0 flex-1 items-center gap-3">
+              <Link href={`/compare?${qs}`} className="flex min-w-0 flex-1 items-center gap-3">
                 <span className="flex shrink-0">
                   {memberPreview.map((u, i) => {
                     const s = personaStyle(u);

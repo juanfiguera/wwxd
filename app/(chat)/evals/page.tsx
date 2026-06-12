@@ -44,7 +44,7 @@ function VoiceRow({ run, summary }: { run: EvalRun; summary: VoiceSummary }) {
       <div className="flex items-baseline justify-between gap-3">
         <div>
           <Link
-            href={`/app/evals/${run.id}`}
+            href={`/evals/${run.id}`}
             className="font-display text-base font-extrabold tracking-tight text-[var(--ink)] hover:underline"
           >
             Voice eval · {summary.displayName}
@@ -55,7 +55,7 @@ function VoiceRow({ run, summary }: { run: EvalRun; summary: VoiceSummary }) {
           </div>
         </div>
         <Link
-          href={`/app/evals/${run.id}`}
+          href={`/evals/${run.id}`}
           className="shrink-0 text-xs text-[var(--ink-soft)] underline-offset-2 hover:text-[var(--ink)] hover:underline"
         >
           details →
@@ -115,7 +115,7 @@ function DiscrimRow({ run, summary }: { run: EvalRun; summary: DiscrimSummary })
       <div className="flex items-baseline justify-between gap-3">
         <div className="min-w-0">
           <Link
-            href={`/app/evals/${run.id}`}
+            href={`/evals/${run.id}`}
             className="truncate font-display text-base font-extrabold tracking-tight text-[var(--ink)] hover:underline"
           >
             Discrimination · {names}
@@ -125,7 +125,7 @@ function DiscrimRow({ run, summary }: { run: EvalRun; summary: DiscrimSummary })
           </div>
         </div>
         <Link
-          href={`/app/evals/${run.id}`}
+          href={`/evals/${run.id}`}
           className="shrink-0 text-xs text-[var(--ink-soft)] underline-offset-2 hover:text-[var(--ink)] hover:underline"
         >
           details →

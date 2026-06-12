@@ -279,7 +279,7 @@ export default async function EvalRunPage({
       <div className="mx-auto w-full max-w-3xl px-4 py-10 md:px-6">
         <header className="mb-8">
           <Link
-            href="/app/evals"
+            href="/evals"
             className="text-xs text-[var(--ink-soft)] underline-offset-2 hover:text-[var(--ink)] hover:underline"
           >
             ← all evals

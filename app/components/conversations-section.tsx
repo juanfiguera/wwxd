@@ -17,9 +17,9 @@ export type RecentConversation = {
 };
 
 function chatHref(conv: RecentConversation): string {
-  if (conv.kind === 'solo') return `/app/${conv.participants[0]?.username ?? conv.key}`;
+  if (conv.kind === 'solo') return `/${conv.participants[0]?.username ?? conv.key}`;
   const personas = conv.participants.map((p) => p.username).join(',');
-  return `/app/compare?personas=${encodeURIComponent(personas)}&mode=roundtable`;
+  return `/compare?personas=${encodeURIComponent(personas)}&mode=roundtable`;
 }
 
 export function ConversationsSection({

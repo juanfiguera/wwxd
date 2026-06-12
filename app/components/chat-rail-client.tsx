@@ -99,7 +99,7 @@ function groupHref(g: RailGroup): string {
     group: g.id,
     mode: 'roundtable',
   }).toString();
-  return `/app/compare?${qs}`;
+  return `/compare?${qs}`;
 }
 
 function PlainRow({
@@ -201,8 +201,8 @@ function PersonaRow({
       });
       toast.success(`Deleted ${persona.displayName}.`);
       // If we were viewing this persona's chat, go home.
-      if (window.location.pathname === `/app/${persona.username}`) {
-        router.push('/app');
+      if (window.location.pathname === `/${persona.username}`) {
+        router.push('/');
       }
       router.refresh();
     } catch {
@@ -226,7 +226,7 @@ function PersonaRow({
         )}
         {/* Stretched link — covers the row except where buttons sit on top */}
         <Link
-          href={`/app/${persona.username}`}
+          href={`/${persona.username}`}
           aria-label={persona.displayName}
           className="absolute inset-0 rounded-[13px]"
         />
@@ -316,7 +316,11 @@ export function ChatRailClient({
   recent: RailConv[];
 }) {
   const pathname = usePathname();
-  const activeSolo = pathname.match(/^\/app\/([a-zA-Z0-9_]+)$/)?.[1] ?? null;
+  // Solo persona route is now `/<slug>`. Reserved top-level segments are
+  // built-in pages, not personas, so exclude them from this match.
+  const RESERVED_SEGMENTS = new Set(['compare', 'evals', 'settings', 'api']);
+  const soloMatch = pathname.match(/^\/([a-zA-Z0-9_-]+)$/)?.[1] ?? null;
+  const activeSolo = soloMatch && !RESERVED_SEGMENTS.has(soloMatch) ? soloMatch : null;
 
   // search
   const [searchOpen, setSearchOpen] = useState(false);
@@ -412,7 +416,7 @@ export function ChatRailClient({
           </>
         ) : (
           <>
-            <Link href="/app" className="shrink-0">
+            <Link href="/" className="shrink-0">
               <BrandMark size={26} />
             </Link>
             <button
@@ -440,7 +444,7 @@ export function ChatRailClient({
       </div>
 
       <Link
-        href="/app"
+        href="/"
         className="mx-3.5 mt-1 flex items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-4 py-2.5 font-display text-[14px] font-bold text-white transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-sm)]"
       >
         <svg
@@ -479,14 +483,14 @@ export function ChatRailClient({
             {visibleRecent.map((c) => {
               let href: string;
               if (c.kind === 'solo') {
-                href = `/app/${c.members[0]}`;
+                href = `/${c.members[0]}`;
               } else {
                 const params = new URLSearchParams({
                   personas: c.members.join(','),
                   mode: 'roundtable',
                 });
                 if (c.groupId) params.set('group', c.groupId);
-                href = `/app/compare?${params.toString()}`;
+                href = `/compare?${params.toString()}`;
               }
               const active = c.kind === 'solo' && activeSolo === c.members[0];
               return (
@@ -567,7 +571,7 @@ export function ChatRailClient({
           aria-label="Settings"
           title="Settings"
           className={`flex h-[34px] w-[34px] items-center justify-center rounded-[10px] transition ${
-            pathname.startsWith('/settings') || pathname.startsWith('/app/evals')
+            pathname.startsWith('/settings') || pathname.startsWith('/evals')
               ? 'bg-white text-[var(--ink)] shadow-[var(--shadow-sm)]'
               : 'text-[var(--ink-soft)] hover:bg-[var(--line-2)] hover:text-[var(--ink)]'
           }`}
