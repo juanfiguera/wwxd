@@ -114,6 +114,7 @@ function PlainRow({
   onDelete,
   deleteLabel,
   isDeleting,
+  isConfirmingDelete,
 }: {
   href: string;
   active: boolean;
@@ -126,10 +127,13 @@ function PlainRow({
   memberUsernames?: string[];
   memberDisplayNames?: string[];
   /** Optional: when provided, render a small trash button visible on hover.
-   *  The handler runs with a fresh MouseEvent so it can prevent the Link nav. */
+   *  The handler runs with a fresh MouseEvent so it can prevent the Link nav.
+   *  First click should "arm" the row (pass isConfirmingDelete=true on the
+   *  next render); second click within the parent's timeout deletes. */
   onDelete?: () => void;
   deleteLabel?: string;
   isDeleting?: boolean;
+  isConfirmingDelete?: boolean;
 }) {
   const hasMembers = !!memberUsernames && memberUsernames.length > 0;
   const memberNames = hasMembers
@@ -187,7 +191,14 @@ function PlainRow({
           disabled={isDeleting}
           aria-label={deleteLabel ?? 'Delete'}
           title={deleteLabel ?? 'Delete'}
-          className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-[var(--ink-faint)] opacity-0 transition group-hover/row:opacity-100 hover:bg-[var(--paper-2)] hover:text-red-600 disabled:opacity-30"
+          // When armed (isConfirmingDelete), the button stays visible
+          // regardless of hover and turns red. Second click within the
+          // parent's timeout completes the delete.
+          className={
+            isConfirmingDelete
+              ? 'absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-red-600 text-white opacity-100 transition disabled:opacity-30'
+              : 'absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-[var(--ink-faint)] opacity-0 transition group-hover/row:opacity-100 hover:bg-[var(--paper-2)] hover:text-red-600 disabled:opacity-30'
+          }
         >
           {isDeleting ? (
             <span className="text-[10px]">...</span>
@@ -376,7 +387,19 @@ export function ChatRailClient({
   // shortly after, but the row would briefly reappear without this).
   const [deletingConv, setDeletingConv] = useState<string | null>(null);
   const [hiddenConvIds, setHiddenConvIds] = useState<Set<string>>(new Set());
+  // Two-click delete: first click on the trash arms the row (red icon + label),
+  // a second click within a few seconds actually deletes. No browser confirm
+  // dialog — matches the wwxd minimal aesthetic and removes the double-OK
+  // weirdness of window.confirm() inside a Link descendant.
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    return () => {
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (searchOpen) searchInputRef.current?.focus();
@@ -436,9 +459,23 @@ export function ChatRailClient({
     [recent, q, filterable, hiddenConvIds],
   );
 
-  async function deleteConversation(convId: string, label: string): Promise<void> {
+  function armDeleteConfirm(convId: string): void {
+    setConfirmingDelete(convId);
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    confirmTimerRef.current = setTimeout(() => {
+      setConfirmingDelete((curr) => (curr === convId ? null : curr));
+    }, 3000);
+  }
+
+  async function deleteConversation(convId: string): Promise<void> {
     if (deletingConv) return;
-    if (!window.confirm(`Remove this conversation with ${label} from your recents?`)) return;
+    // First click on the trash arms the row; second click within 3s deletes.
+    if (confirmingDelete !== convId) {
+      armDeleteConfirm(convId);
+      return;
+    }
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    setConfirmingDelete(null);
     setDeletingConv(convId);
     try {
       const res = await fetch(`/api/conversations/${encodeURIComponent(convId)}`, {
@@ -593,9 +630,14 @@ export function ChatRailClient({
                   }
                   memberUsernames={c.kind === 'solo' ? undefined : c.members}
                   memberDisplayNames={c.kind === 'solo' ? undefined : c.memberDisplayNames}
-                  onDelete={() => deleteConversation(c.key, c.displayName)}
-                  deleteLabel={`Remove ${c.displayName} from recents`}
+                  onDelete={() => deleteConversation(c.key)}
+                  deleteLabel={
+                    confirmingDelete === c.key
+                      ? `Click again to remove ${c.displayName}`
+                      : `Remove ${c.displayName} from recents`
+                  }
                   isDeleting={deletingConv === c.key}
+                  isConfirmingDelete={confirmingDelete === c.key}
                 />
               );
             })}
