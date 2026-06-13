@@ -6,7 +6,7 @@
   <a href="./LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
   <a href="https://nextjs.org"><img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
   <a href="https://react.dev"><img alt="React 19" src="https://img.shields.io/badge/React-19-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
-  <a href="#tests--evals"><img alt="473 tests passing" src="https://img.shields.io/badge/tests-473_passing-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
+  <a href="#tests--evals"><img alt="498 tests passing" src="https://img.shields.io/badge/tests-498_passing-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
   <a href="#contributing"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
 </p>
 
@@ -19,8 +19,9 @@
   <a href="#contributing">Contribute</a>
 </p>
 
-> [!WARNING]
-> **wwxd generates AI _impressions_ of real people.** The personas aren't the people they reference, aren't endorsed by them, and will sometimes misrepresent their views. Don't quote outputs. Don't take advice from them. Treat the whole thing as well-researched fan fiction.
+<p align="center">
+  <a href="#caveats-worth-reading" title="More on what wwxd can and can't tell you"><img src=".github/assets/warning.svg" alt="WARNING — wwxd generates AI impressions of real people. The personas aren't the people they reference, aren't endorsed by them, and will sometimes misrepresent their views. Don't quote outputs. Don't take advice from them. Treat the whole thing as well-researched fan fiction." /></a>
+</p>
 
 ## Get going
 
@@ -36,22 +37,32 @@ pnpm dev                         # → http://localhost:3000
 
 ## What you get
 
-Steve Jobs on AI agents. Paul Graham on hiring your first engineer. Marcus Aurelius on the email you can't stop drafting. The same machine answers all three, and it'll cite its sources when it has them.
+**A room of any minds you want, arguing your question.** Drop Paul Graham, Naval, and Marcus Aurelius into the same conversation and watch them disagree about your next move. The personas speak in turn, react to each other by name, and pass when they have nothing to add — so you get perspectives, not noise. Use it to stress-test your thinking, not to outsource it.
 
 <p align="center">
-  <img src=".github/assets/chat-preview.png" alt="Roundtable with Steve Jobs (no sources, dashed border) and Paul Graham (CITED, sources). Each replies to the prompt in their own voice and reacts to the other by name." width="100%" />
+  <img src=".github/assets/chat-preview.png" alt="AI Lounge roundtable — Elon Musk, Sam Altman, Andrej Karpathy, Dario Amodei, Demis Hassabis, and Andrew Ng answering 'how does the world look like to you in 5 years?' in turn, each in their own voice, each grounded with CITED sources." width="100%" />
 </p>
 
-**Two modes for any persona:**
+Solo works too — same surface, one persona, when you just want to ask Steve Jobs about your homepage. Save any lineup as a **Group** ("Board of Directors", "The Stoa") and one-click it from the sidebar.
 
-- **Grounded** — feed wwxd their writing (tweets via Apify, essays from URLs/RSS/sitemap, YouTube transcripts) and replies link back to specific chunks with `↗`. You're hearing a synthesis of what they actually wrote.
-- **Prior-only** — just type a name, wwxd generates the persona from the model's memory. No corpus needed. Perfect for historical figures and anyone you can't ingest.
+**Two ways to build a persona, mix freely in the same room:**
 
-Both share the chat surface. Grounded personas wear a `CITED` pill. Prior-only personas read "from memory".
+- **Grounded** — feed wwxd their writing (tweets via Apify, essays from URLs/RSS/sitemap, YouTube transcripts) and replies link back to specific chunks with `↗`. You're hearing a synthesis of what they actually wrote. Wears a `CITED` pill.
+- **Prior-only** — just type a name. Instant. The model generates the persona from its memory. Perfect for historical figures and anyone you can't ingest. Reads "from memory".
+
+### Try these on day one
+
+Rooms to spin up the moment you've got two or three personas in your sidebar:
+
+- **Founders Roundtable** — Paul Graham, Naval, Sam Altman: *"I have a stable job at a big company and a startup idea I can't shake. What am I missing?"*
+- **AI Lounge** — Sam Altman, Andrej Karpathy, Demis Hassabis, Andrew Ng: *"Is taste and judgment the most important thing in the age of AI?"*
+- **The Stoa** — Marcus Aurelius, Seneca, Naval: *"A colleague took credit for my work in front of the team. What now?"*
+- **Design crit** — Steve Jobs, Jony Ive, Dieter Rams: *paste your homepage hero copy and ask "what would you cut?"*
+- **Devil's advocate** — anyone you actually agree with, plus their loudest critic: *pitch your idea and let them argue.*
 
 ## Make your first persona
 
-After `pnpm dev`, open [http://localhost:3000](http://localhost:3000). Empty rail, "Add a persona" card with two tabs:
+After `pnpm dev`, open [http://localhost:3000](http://localhost:3000). The sidebar starts empty with an "Add a persona" card. Two tabs:
 
 - **X handle** — paste a handle. About a minute for the latest 850 tweets. Needs `APIFY_TOKEN` + an embedding provider.
 - **Name anyone** — type a name. Instant. No tokens beyond your LLM provider.
@@ -66,7 +77,13 @@ Make one, click their card, ask them something. That's the whole loop.
 | **Compare** | `/compare?personas=a,b,c` | Same prompt, parallel columns. See where they differ. |
 | **Roundtable** | `/compare?personas=a,b,c&mode=roundtable` | They take turns and react to each other by name. A gate lets a persona pass when they have nothing to add. |
 
-Save a lineup as a **Group** ("Board of Directors", "The Stoa") and one-click it from the rail. **Share** a conversation as Markdown, plain text, or a versioned `.wwxd.json` snapshot.
+Compare mode looks like this — same prompt, one column per persona, no cross-talk:
+
+<p align="center">
+  <img src=".github/assets/compare-preview.png" alt="Compare mode: Naval, Paul Graham, and Marcus Aurelius each answering 'How do I tell if I am working on the wrong thing?' in their own parallel column, no reactions between them." width="100%" />
+</p>
+
+**Share** a conversation as Markdown, plain text, or a versioned `.wwxd.json` snapshot.
 
 ## Bring your own model
 
@@ -180,11 +197,19 @@ app/api/chat/[username]/route.ts:
 <summary><strong>Tests + evals</strong></summary>
 
 ```bash
-pnpm test                       # 473 unit tests
+pnpm test                       # 498 unit tests
 pnpm eval-persona paulg         # voice match score via LLM judge
 pnpm eval-discriminate paulg    # blind A/B: can a judge tell wwxd from real?
 ```
 </details>
+
+## What's next
+
+A short list, no promises. Open an issue if you want to push one forward.
+
+- **More ingestion sources** — Substack/Medium without RSS, podcast feeds, book and PDF ingestion.
+- **Persona share** — export a persona's corpus + prompt as a single file others can import in one click.
+- **Mobile polish** — the chat surface is desktop-first; touch, narrow widths, and the share sheet all need love.
 
 ## Caveats worth reading
 
@@ -210,3 +235,7 @@ Project home: **[wwxd.chat](https://wwxd.chat)**.
 ## License
 
 MIT, see [LICENSE](./LICENSE).
+
+---
+
+<p align="center">If wwxd helps you think, consider giving it a ⭐</p>
