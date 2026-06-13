@@ -763,7 +763,7 @@ export function Compare({
       <div className="bg-gradient-to-b from-transparent to-[var(--paper-2)] px-6 pb-5 pt-2">
         <form
           onSubmit={onSubmit}
-          className="mx-auto flex max-w-[760px] items-center gap-2 rounded-full border border-[var(--line)] bg-white px-2 py-2 shadow-[var(--shadow-sm)]"
+          className="mx-auto flex max-w-[960px] items-center gap-2 rounded-full border border-[var(--line)] bg-white px-2 py-2 shadow-[var(--shadow-sm)]"
         >
           <input
             ref={inputRef}

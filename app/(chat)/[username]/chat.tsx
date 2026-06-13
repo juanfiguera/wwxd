@@ -156,7 +156,7 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
 
       <div className="relative flex-1 overflow-hidden">
         <div ref={scrollRef} className="h-full overflow-y-auto bg-[var(--paper-2)]">
-        <div className="mx-auto max-w-[760px] space-y-5 px-4 py-6 md:px-6">
+        <div className="mx-auto max-w-[960px] space-y-5 px-4 py-6 md:px-6">
         <ImpressionCard kind="solo" personas={[{ username, displayName, mode }]} />
         {messages.length === 0 ? null : (
           messages.map((m) => {
@@ -268,7 +268,7 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
       <div className="bg-gradient-to-b from-transparent to-[var(--paper)] px-3 pb-5 pt-2 md:px-6">
         <form
           onSubmit={onSubmit}
-          className="mx-auto flex max-w-[760px] items-center gap-2 rounded-full border border-[var(--line)] bg-white px-2 py-2 shadow-[var(--shadow-sm)] transition-[border-color,box-shadow]"
+          className="mx-auto flex max-w-[960px] items-center gap-2 rounded-full border border-[var(--line)] bg-white px-2 py-2 shadow-[var(--shadow-sm)] transition-[border-color,box-shadow]"
           style={{
             borderColor: isBusy ? style.color : undefined,
           }}
