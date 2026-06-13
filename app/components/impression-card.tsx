@@ -55,7 +55,7 @@ export function ImpressionCard({
     <aside
       role="note"
       aria-label="About AI impressions"
-      className="mx-auto flex max-w-[600px] items-start gap-3 rounded-[var(--r-lg)] border border-dashed border-[var(--line)] bg-white/60 p-3.5 text-[12.5px] leading-[1.5] text-[var(--ink-soft)]"
+      className="mx-auto flex max-w-[960px] items-start gap-3 rounded-[var(--r-lg)] border border-dashed border-[var(--line)] bg-white/60 p-3.5 text-[12.5px] leading-[1.5] text-[var(--ink-soft)]"
     >
       <span
         aria-hidden
