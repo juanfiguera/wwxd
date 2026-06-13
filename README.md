@@ -230,8 +230,6 @@ PRs welcome. Small surface:
 
 Run `pnpm test` before opening a PR. Tests live in `lib/__tests__/` and `app/components/__tests__/`.
 
-Project home: **[wwxd.chat](https://wwxd.chat)**.
-
 ## License
 
 MIT, see [LICENSE](./LICENSE).
