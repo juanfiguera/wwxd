@@ -79,6 +79,13 @@ describe('POST /api/groups', () => {
     expect(res.status).toBe(400);
   });
 
+  it('accepts usernames with hyphens (prior-only slugs like marcus-aurelius)', async () => {
+    const res = await POST(
+      postReq({ name: 'Stoics', personas: ['seneca', 'marcus-aurelius'] }),
+    );
+    expect(res.status).toBe(201);
+  });
+
   it('returns 400 for malformed JSON', async () => {
     const res = await POST(
       new Request('http://test.local/api/groups', { method: 'POST', body: 'not json' }),

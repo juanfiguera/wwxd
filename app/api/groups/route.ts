@@ -3,7 +3,7 @@ import { createGroup, DuplicateGroupNameError, listGroups } from '@/lib/groups';
 
 const CreateBody = z.object({
   name: z.string().min(1).max(60),
-  personas: z.array(z.string().min(1).max(40).regex(/^[a-zA-Z0-9_]+$/)).min(1).max(20),
+  personas: z.array(z.string().min(1).max(40).regex(/^[a-zA-Z0-9_-]+$/)).min(1).max(20),
 });
 
 export async function GET(): Promise<Response> {
