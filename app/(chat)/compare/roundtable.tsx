@@ -344,7 +344,27 @@ export function RoundtableView({
             working = working.map((m) => (m.id === placeholder.id ? { ...m, text: acc } : m));
             setMessages([...working]);
           }
-          if (!acc.trim()) {
+          // The server prefixes upstream provider errors (rate limit,
+          // billing, etc.) with this sentinel so we can render the real
+          // reason instead of "(model returned empty response)" or worse,
+          // displaying the error as if the persona had said it.
+          const ERROR_SENTINEL = '__WWXD_STREAM_ERROR__';
+          if (acc.includes(ERROR_SENTINEL)) {
+            const errMsg = acc.split(ERROR_SENTINEL).pop()?.trim() ?? '';
+            working = working.map((m) =>
+              m.id === placeholder.id
+                ? {
+                    ...m,
+                    text: '',
+                    passed: true,
+                    passReason: errMsg
+                      ? `(${errMsg})`
+                      : '(provider error)',
+                  }
+                : m,
+            );
+            setMessages([...working]);
+          } else if (!acc.trim()) {
             // Don't silently vanish — show that the model returned nothing
             working = working.map((m) =>
               m.id === placeholder.id

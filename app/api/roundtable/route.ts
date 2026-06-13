@@ -284,8 +284,30 @@ export async function POST(req: Request): Promise<Response> {
     providerOptions: cacheableProviderOptions(),
   });
 
-  return result.toTextStreamResponse({
+  // Build a custom ReadableStream so we can catch upstream provider errors
+  // (rate limit, billing, model unavailable) and forward them to the client
+  // with a sentinel prefix. The default toTextStreamResponse swallows
+  // these errors silently, leaving the client to display "(model returned
+  // empty response)" instead of the actual reason.
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const chunk of result.textStream) {
+          controller.enqueue(encoder.encode(chunk));
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        controller.enqueue(encoder.encode(`__WWXD_STREAM_ERROR__${msg}`));
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
     headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
       'X-Retrieved-Tweets': encodeURIComponent(JSON.stringify(retrievedMeta)),
     },
   });
