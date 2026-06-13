@@ -158,13 +158,7 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
         <div ref={scrollRef} className="h-full overflow-y-auto bg-[var(--paper-2)]">
         <div className="mx-auto max-w-[760px] space-y-5 px-4 py-6 md:px-6">
         <ImpressionCard kind="solo" personas={[{ username, displayName, mode }]} />
-        {messages.length === 0 ? (
-          <p className="text-sm text-[var(--ink-soft)]">
-            {mode === 'prior-only'
-              ? `Ask ${displayName} anything. Replies come from the model's general knowledge of them — no citations.`
-              : `Ask ${displayName} anything. Cited claims include a small ↗ link back to the source.`}
-          </p>
-        ) : (
+        {messages.length === 0 ? null : (
           messages.map((m) => {
             const text = m.parts
               .map((part) => (part.type === 'text' ? part.text : ''))
