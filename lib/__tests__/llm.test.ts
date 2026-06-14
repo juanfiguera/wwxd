@@ -68,7 +68,7 @@ describe('modelFor', () => {
 
   it('rejects unknown providers', () => {
     process.env.LLM_PROVIDER = 'gemini-or-bust';
-    expect(() => modelFor('chat')).toThrow(/Unknown LLM_PROVIDER/);
+    expect(() => modelFor('chat')).toThrow(/Unknown provider/);
   });
 });
 

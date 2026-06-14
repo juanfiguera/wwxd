@@ -1,119 +1,68 @@
 /**
- * Single source of truth for which LLM provider answers each role
- * (chat, gate, risk classifier, eval judge) and which provider supplies
- * embeddings. Lets self-hosters point wwxd at Anthropic, OpenAI, Ollama,
- * OpenRouter, vLLM, or any OpenAI-compatible API by editing `.env.local`,
- * never the code.
+ * Thin selector layer over `lib/providers.ts`. Reads env to pick the active
+ * provider and per-role model id, then delegates to the spec for everything
+ * else (LanguageModel factory, EmbeddingModel factory, provider-specific
+ * options).
  *
  * Env contract:
  *
- *   LLM_PROVIDER          = anthropic | openai | openai-compatible   (default: anthropic)
- *   LLM_BASE_URL          = base URL for openai-compatible (Ollama: http://localhost:11434/v1)
- *   LLM_API_KEY           = API key for openai-compatible (Ollama: "ollama")
+ *   LLM_PROVIDER          = anthropic | openai | openai-compatible
+ *                           (aliases: ollama, openrouter, vllm, lmstudio)
+ *                           (default: anthropic)
+ *   LLM_BASE_URL          = base URL for openai-compatible chat (Ollama: http://localhost:11434/v1)
+ *   LLM_API_KEY           = API key for openai-compatible chat (Ollama: "ollama")
  *
  *   CHAT_MODEL            = model id for the main persona reply
  *   GATE_MODEL            = model id for the roundtable speaker gate (cheap)
  *   CLASSIFIER_MODEL      = model id for the risk classifier (cheap)
  *   JUDGE_MODEL           = model id for offline eval judges
  *
- *   EMBEDDING_PROVIDER    = openai | openai-compatible                (default: openai)
+ *   EMBEDDING_PROVIDER    = openai | openai-compatible (default: openai)
  *   EMBEDDING_BASE_URL    = base URL for openai-compatible embeddings
  *   EMBEDDING_API_KEY     = API key for openai-compatible embeddings
  *   EMBEDDING_MODEL       = model id (default: text-embedding-3-small)
  *   EMBEDDING_DIMENSIONS  = output dims (default: 512)
  *
- * All MODEL ids fall back to per-provider defaults below if unset, so a
- * minimal `.env.local` with just `LLM_PROVIDER=openai` and the
+ * All MODEL ids fall back to per-provider defaults declared in `providers.ts`
+ * so a minimal `.env.local` with just `LLM_PROVIDER=openai` and the
  * corresponding API key works out of the box.
  */
 
-import { anthropic } from '@ai-sdk/anthropic';
-import { openai } from '@ai-sdk/openai';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { EmbeddingModel, LanguageModel } from 'ai';
+import { resolveProvider, type ProviderSpec, type Role } from './providers';
 
-export type Role = 'chat' | 'gate' | 'classifier' | 'judge';
+export type { Role } from './providers';
 
-type Provider = 'anthropic' | 'openai' | 'openai-compatible';
-
-function provider(): Provider {
-  const raw = (process.env.LLM_PROVIDER ?? 'anthropic').toLowerCase();
-  if (raw === 'anthropic' || raw === 'openai' || raw === 'openai-compatible') {
-    return raw;
-  }
-  // Friendly aliases.
-  if (raw === 'ollama' || raw === 'openrouter' || raw === 'vllm' || raw === 'lmstudio') {
-    return 'openai-compatible';
-  }
-  throw new Error(
-    `Unknown LLM_PROVIDER=${raw}. Use anthropic | openai | openai-compatible.`,
-  );
-}
-
-/** Built-in defaults so a brand-new `.env.local` with just LLM_PROVIDER works. */
-const DEFAULT_MODELS: Record<Provider, Record<Role, string>> = {
-  anthropic: {
-    chat: 'claude-opus-4-7',
-    gate: 'claude-haiku-4-5-20251001',
-    classifier: 'claude-haiku-4-5-20251001',
-    judge: 'claude-opus-4-7',
-  },
-  openai: {
-    chat: 'gpt-5',
-    gate: 'gpt-5-mini',
-    classifier: 'gpt-5-mini',
-    judge: 'gpt-5',
-  },
-  'openai-compatible': {
-    // Ollama defaults; override per-role via env.
-    chat: 'llama3.1:8b',
-    gate: 'llama3.1:8b',
-    classifier: 'llama3.1:8b',
-    judge: 'llama3.1:8b',
-  },
+const ROLE_ENV: Record<Role, string> = {
+  chat: 'CHAT_MODEL',
+  gate: 'GATE_MODEL',
+  classifier: 'CLASSIFIER_MODEL',
+  judge: 'JUDGE_MODEL',
 };
 
-function envFor(role: Role): string {
-  switch (role) {
-    case 'chat':
-      return process.env.CHAT_MODEL ?? DEFAULT_MODELS[provider()][role];
-    case 'gate':
-      return process.env.GATE_MODEL ?? DEFAULT_MODELS[provider()][role];
-    case 'classifier':
-      return process.env.CLASSIFIER_MODEL ?? DEFAULT_MODELS[provider()][role];
-    case 'judge':
-      return process.env.JUDGE_MODEL ?? DEFAULT_MODELS[provider()][role];
-  }
+function chatProvider(): ProviderSpec {
+  return resolveProvider(process.env.LLM_PROVIDER);
 }
 
-let openaiCompatibleClient: ReturnType<typeof createOpenAICompatible> | null = null;
-function getOpenAICompatibleClient() {
-  if (openaiCompatibleClient) return openaiCompatibleClient;
-  const baseURL = process.env.LLM_BASE_URL;
-  if (!baseURL) {
+function embeddingProviderSpec(): ProviderSpec {
+  const spec = resolveProvider(process.env.EMBEDDING_PROVIDER ?? 'openai');
+  if (!spec.supportsEmbeddings) {
     throw new Error(
-      'LLM_PROVIDER=openai-compatible requires LLM_BASE_URL (e.g. http://localhost:11434/v1 for Ollama).',
+      `EMBEDDING_PROVIDER=${spec.id} does not support embeddings. Use openai or openai-compatible.`,
     );
   }
-  openaiCompatibleClient = createOpenAICompatible({
-    name: 'wwxd-llm',
-    baseURL,
-    apiKey: process.env.LLM_API_KEY,
-  });
-  return openaiCompatibleClient;
+  return spec;
+}
+
+function modelIdFor(role: Role): string {
+  const override = process.env[ROLE_ENV[role]];
+  if (override) return override;
+  return chatProvider().defaultModels[role];
 }
 
 /** Factory that returns the LanguageModel for a given role. */
 export function modelFor(role: Role): LanguageModel {
-  const id = envFor(role);
-  switch (provider()) {
-    case 'anthropic':
-      return anthropic(id);
-    case 'openai':
-      return openai(id);
-    case 'openai-compatible':
-      return getOpenAICompatibleClient()(id);
-  }
+  return chatProvider().language(modelIdFor(role));
 }
 
 /**
@@ -121,46 +70,17 @@ export function modelFor(role: Role): LanguageModel {
  * supports prompt caching via `cacheControl`; OpenAI and most
  * openai-compatible backends don't, so we just don't pass it.
  */
-export function cacheableProviderOptions() {
-  if (provider() === 'anthropic') {
-    return { anthropic: { cacheControl: { type: 'ephemeral' as const } } };
-  }
-  return undefined;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function cacheableProviderOptions(): Record<string, any> | undefined {
+  return chatProvider().cacheableProviderOptions();
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 // Embeddings
 
-type EmbeddingProvider = 'openai' | 'openai-compatible';
-
-function embeddingProvider(): EmbeddingProvider {
-  const raw = (process.env.EMBEDDING_PROVIDER ?? 'openai').toLowerCase();
-  if (raw === 'openai' || raw === 'openai-compatible') return raw;
-  if (raw === 'ollama') return 'openai-compatible';
-  throw new Error(
-    `Unknown EMBEDDING_PROVIDER=${raw}. Use openai | openai-compatible.`,
-  );
-}
-
-let embeddingCompatibleClient: ReturnType<typeof createOpenAICompatible> | null = null;
-function getEmbeddingCompatibleClient() {
-  if (embeddingCompatibleClient) return embeddingCompatibleClient;
-  const baseURL = process.env.EMBEDDING_BASE_URL ?? process.env.LLM_BASE_URL;
-  if (!baseURL) {
-    throw new Error(
-      'EMBEDDING_PROVIDER=openai-compatible requires EMBEDDING_BASE_URL (or LLM_BASE_URL).',
-    );
-  }
-  embeddingCompatibleClient = createOpenAICompatible({
-    name: 'wwxd-embed',
-    baseURL,
-    apiKey: process.env.EMBEDDING_API_KEY ?? process.env.LLM_API_KEY,
-  });
-  return embeddingCompatibleClient;
-}
-
 export function embeddingModelId(): string {
-  return process.env.EMBEDDING_MODEL ?? 'text-embedding-3-small';
+  if (process.env.EMBEDDING_MODEL) return process.env.EMBEDDING_MODEL;
+  return embeddingProviderSpec().defaultEmbeddingModel ?? 'text-embedding-3-small';
 }
 
 export function embeddingDimensions(): number {
@@ -168,13 +88,12 @@ export function embeddingDimensions(): number {
 }
 
 export function embeddingModel(): EmbeddingModel {
-  const id = embeddingModelId();
-  switch (embeddingProvider()) {
-    case 'openai':
-      return openai.textEmbedding(id);
-    case 'openai-compatible':
-      return getEmbeddingCompatibleClient().textEmbeddingModel(id);
+  const spec = embeddingProviderSpec();
+  if (!spec.embedding) {
+    // Defensive: supportsEmbeddings should already have caught this.
+    throw new Error(`Provider ${spec.id} has no embedding factory.`);
   }
+  return spec.embedding(embeddingModelId());
 }
 
 /**
@@ -182,14 +101,13 @@ export function embeddingModel(): EmbeddingModel {
  * OpenAI's `dimensions` knob for `text-embedding-3-*`). openai-compatible
  * backends like Ollama don't accept this and would 400, so omit there.
  */
-export function embeddingProviderOptions() {
-  if (embeddingProvider() === 'openai') {
-    return { openai: { dimensions: embeddingDimensions() } };
-  }
-  return undefined;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function embeddingProviderOptions(): Record<string, any> | undefined {
+  const spec = embeddingProviderSpec();
+  return spec.embeddingProviderOptions?.({ dimensions: embeddingDimensions() });
 }
 
 /** For logging / health-check / debug. */
 export function describeProvider(): { llm: string; embedding: string } {
-  return { llm: provider(), embedding: embeddingProvider() };
+  return { llm: chatProvider().id, embedding: embeddingProviderSpec().id };
 }
