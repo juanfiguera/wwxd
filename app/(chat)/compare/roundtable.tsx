@@ -410,6 +410,15 @@ export function RoundtableView({
               text: m.text,
             }))}
           />
+          {conversationId && (
+            <a
+              href={`/evals/conversations/${conversationId}`}
+              className="rounded-full px-2 py-1 text-[var(--ink-soft)] hover:bg-[var(--paper-2)] hover:text-[var(--ink)]"
+              title="Show the trace of gate decisions, retrieval hits, and errors for this conversation"
+            >
+              trace
+            </a>
+          )}
           {hasHistory && (
             <button
               onClick={clear}
