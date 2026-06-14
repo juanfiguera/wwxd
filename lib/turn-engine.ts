@@ -296,30 +296,44 @@ function wrapLlmStream(
   });
 }
 
-// ─── runTurn ──────────────────────────────────────────────────────────────
+// ─── prepareTurn ──────────────────────────────────────────────────────────
 
-export async function runTurn(req: TurnRequest): Promise<TurnResult> {
+/**
+ * Inputs the engine has prepared for the LLM speak call. Callers that need
+ * full control over the wire format (the solo route uses AI SDK's
+ * `toUIMessageStreamResponse`) build their own streamText() call from these.
+ */
+export type PreparedSpeak = {
+  bundle: CorpusBundle;
+  systemPrompt: string;
+  messages: ModelMessage[];
+  retrievedMeta: RetrievedTweetMeta[];
+  emit: EmitFn;
+  signal?: AbortSignal;
+};
+
+export type PrepareResult =
+  | { kind: 'speak'; inputs: PreparedSpeak }
+  | { kind: 'gate-passed'; reason: string; retrievedMeta: RetrievedTweetMeta[]; emit: EmitFn };
+
+export async function prepareTurn(req: TurnRequest): Promise<PrepareResult> {
   const { speaker, speakers, history, mode, signal } = req;
   const emit = makeEmit(req);
   emit('persona.started', { mode });
 
-  // 1. Corpus bundle (cached).
   const bundle: CorpusBundle = await getCorpusBundle(speaker);
 
-  // 2. Build the speaker's POV messages and extract their query.
   const built =
     mode === 'solo'
       ? buildSoloMessages(history)
       : buildPovMessages(history, speakers, speaker);
   const { messages: povMessages, lastUserText } = built;
 
-  // 3. Decide whether risk + gate run this turn.
   const isFirstSpeakerThisTurn =
     mode === 'roundtable' ? !someoneHasSpokenSinceLastUser(history) : true;
   const shouldClassifyRisk =
     Boolean(lastUserText) && (mode === 'solo' || isFirstSpeakerThisTurn);
 
-  // 4. Retrieval + (optional) risk classification in parallel.
   const embeddings = hasEmbeddingProvider() ? await tryLoadEmbeddings(speaker) : null;
   const retrievalPromise = (async (): Promise<Tweet[]> => {
     if (!lastUserText) return [];
@@ -347,8 +361,6 @@ export async function runTurn(req: TurnRequest): Promise<TurnResult> {
   });
   if (shouldClassifyRisk) emit('risk.classified', { category: riskCategory, query: lastUserText });
 
-  // 5. Prior-only personas skip the retrieval block (the static prompt
-  // already tells the model "no curated corpus attached").
   const isPriorOnly = bundle.corpus.mode === 'prior-only';
   const retrievalBlock = isPriorOnly ? '' : buildRetrievalBlock(retrievedTweets);
   const addendum = mode === 'roundtable' ? buildRoundtableAddendum(speakers, speaker) : '';
@@ -363,7 +375,6 @@ export async function runTurn(req: TurnRequest): Promise<TurnResult> {
     title: t.title,
   }));
 
-  // 6. Roundtable gate: only later speakers run it. Skipped in solo.
   if (
     mode === 'roundtable' &&
     GATE_ENABLED &&
@@ -384,10 +395,7 @@ export async function runTurn(req: TurnRequest): Promise<TurnResult> {
       const decision = parseGateDecision(gateResult.text);
       if (!decision.speak) {
         emit('gate.passed', { reason: decision.reason });
-        return {
-          stream: singlePartStream({ type: 'gate-passed', reason: decision.reason }),
-          retrievedMeta,
-        };
+        return { kind: 'gate-passed', reason: decision.reason, retrievedMeta, emit };
       }
       emit('gate.spoke');
     } catch (err) {
@@ -396,21 +404,43 @@ export async function runTurn(req: TurnRequest): Promise<TurnResult> {
     }
   }
 
-  // 7. Build the speak prelude and stream.
   const prelude = [addendum, retrievalBlock].filter(Boolean).join('\n\n');
   const finalMessages = injectPreludeIntoLastUserMessage(povMessages, prelude);
   const systemPrompt = riskAddendum
     ? `${bundle.staticPrompt}\n\n${riskAddendum}`
     : bundle.staticPrompt;
 
+  return {
+    kind: 'speak',
+    inputs: {
+      bundle,
+      systemPrompt,
+      messages: finalMessages,
+      retrievedMeta,
+      emit,
+      signal,
+    },
+  };
+}
+
+// ─── runTurn ──────────────────────────────────────────────────────────────
+
+export async function runTurn(req: TurnRequest): Promise<TurnResult> {
+  const prep = await prepareTurn(req);
+  if (prep.kind === 'gate-passed') {
+    return {
+      stream: singlePartStream({ type: 'gate-passed', reason: prep.reason }),
+      retrievedMeta: prep.retrievedMeta,
+    };
+  }
+  const { systemPrompt, messages, retrievedMeta, emit, signal } = prep.inputs;
   const result = streamText({
     model: modelFor('chat'),
     system: systemPrompt,
-    messages: finalMessages,
+    messages,
     providerOptions: cacheableProviderOptions(),
     abortSignal: signal,
   });
-
   return {
     stream: wrapLlmStream(result.textStream, signal, emit),
     retrievedMeta,
