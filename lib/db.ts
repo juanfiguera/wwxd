@@ -531,15 +531,15 @@ export function listConversations(opts?: {
  * When a persona is deleted, remove them from every conversation. Solo
  * conversations for that persona get deleted outright; roundtables keep
  * their message history (those rows live in `messages`, not here) but the
- * participant row is removed. Returns a small summary so the route can
- * log/toast.
+ * participant row is removed. Does NOT touch the conversations' updated_at
+ * timestamps — persona deletion is a system-initiated action and shouldn't
+ * promote affected conversations to the top of the "recent" rail.
  */
 export function removePersonaFromAllConversations(username: string): {
   soloDeleted: boolean;
   roundtablesUpdated: number;
 } {
   const db = getDb();
-  const now = new Date().toISOString();
   let soloDeleted = false;
   let roundtablesUpdated = 0;
   const tx = db.transaction(() => {
@@ -554,15 +554,6 @@ export function removePersonaFromAllConversations(username: string): {
       db.prepare(`DELETE FROM conversations WHERE id = ?`).run(solo.id);
       soloDeleted = true;
     }
-    // Capture affected roundtables before the delete so we can bump their
-    // updated_at after.
-    const affected = db
-      .prepare(
-        `SELECT p.conversation_id AS id FROM conversation_participants p
-         JOIN conversations c ON c.id = p.conversation_id
-         WHERE p.persona_username = ? AND c.kind = 'roundtable'`,
-      )
-      .all(username) as Array<{ id: string }>;
     const result = db
       .prepare(
         `DELETE FROM conversation_participants
@@ -571,10 +562,6 @@ export function removePersonaFromAllConversations(username: string): {
       )
       .run(username);
     roundtablesUpdated = result.changes;
-    if (affected.length > 0) {
-      const bump = db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`);
-      for (const row of affected) bump.run(now, row.id);
-    }
   });
   tx();
   return { soloDeleted, roundtablesUpdated };

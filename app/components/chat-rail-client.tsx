@@ -214,6 +214,23 @@ function PlainRow({
         >
           {isDeleting ? (
             <span className="text-[10px]">...</span>
+          ) : isConfirmingDelete ? (
+            // Armed: swap to a check so it's unmistakable that the next click
+            // commits. Pulses gently to draw the eye away from the row.
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+              className="animate-pulse"
+            >
+              <path d="M5 12l5 5L20 7" />
+            </svg>
           ) : (
             <svg
               width="13"
