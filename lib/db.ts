@@ -66,6 +66,22 @@ function dbPath(): string {
   return resolve(process.cwd(), 'data', 'wwxd.db');
 }
 
+/**
+ * Drop the cached connection. Used by tests that delete and recreate the
+ * underlying file between assertions; not intended for production callers.
+ */
+export function __resetDb(): void {
+  if (dbInstance) {
+    try {
+      dbInstance.close();
+    } catch {
+      /* fine */
+    }
+  }
+  dbInstance = null;
+  dbInstancePath = null;
+}
+
 export function getDb(): Database.Database {
   const path = dbPath();
   if (dbInstance && dbInstancePath === path) return dbInstance;
@@ -167,6 +183,21 @@ function initSchema(db: Database.Database): void {
       FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, ordinal);
+
+    CREATE TABLE IF NOT EXISTS groups (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS group_personas (
+      group_id TEXT NOT NULL,
+      persona_username TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      PRIMARY KEY (group_id, persona_username),
+      FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_group_personas_group ON group_personas(group_id, ordinal);
 
     CREATE TABLE IF NOT EXISTS conversation_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

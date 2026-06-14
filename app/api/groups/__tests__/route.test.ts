@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -8,25 +8,33 @@ import {
   GET as GET_ID,
   PATCH as PATCH_ID,
 } from '../[id]/route';
+import { __resetDb } from '@/lib/db';
+import { __resetMigrationFlag } from '@/lib/groups';
 
 const tmpDir = mkdtempSync(join(tmpdir(), 'wwxd-groups-route-'));
 
 beforeAll(() => {
+  process.env.WWXD_DB_PATH = resolve(tmpDir, 'wwxd.db');
+  // No legacy JSON to import — tests start clean.
   process.env.WWXD_GROUPS_PATH = resolve(tmpDir, 'groups.json');
 });
 afterAll(() => {
+  delete process.env.WWXD_DB_PATH;
   delete process.env.WWXD_GROUPS_PATH;
   rmSync(tmpDir, { recursive: true, force: true });
 });
 beforeEach(() => {
-  // Clear the file between tests by writing an empty groups payload.
-  // We can't import the lib helper to do this without a public reset, but
-  // rewriting via fs is fine.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  require('node:fs').writeFileSync(
-    resolve(tmpDir, 'groups.json'),
-    JSON.stringify({ groups: [] }),
-  );
+  // Reset SQLite state between tests: close the cached connection, delete
+  // the file, then let getDb() recreate fresh on next call.
+  __resetDb();
+  for (const ext of ['', '-wal', '-shm']) {
+    try {
+      unlinkSync(resolve(tmpDir, 'wwxd.db' + ext));
+    } catch {
+      /* fine */
+    }
+  }
+  __resetMigrationFlag();
 });
 
 function postReq(body: unknown): Request {
