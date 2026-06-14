@@ -24,7 +24,8 @@ export type LoadedEmbeddings = {
 const cache = new Map<string, { mtime: number; loaded: LoadedEmbeddings }>();
 
 export function embeddingsPath(username: string): string {
-  return resolve(process.cwd(), 'data', `${username}.embeddings.json`);
+  const dir = process.env.WWXD_DATA_DIR ?? resolve(process.cwd(), 'data');
+  return resolve(dir, `${username}.embeddings.json`);
 }
 
 export async function loadEmbeddings(username: string): Promise<LoadedEmbeddings> {

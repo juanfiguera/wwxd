@@ -1,0 +1,367 @@
+/**
+ * One unified per-persona turn engine for both solo and roundtable surfaces.
+ *
+ * A turn is "this persona, replying to this history, in this mode". The
+ * engine loads the corpus bundle, runs retrieval (with a query-level
+ * embedding cache so a 6-persona roundtable embeds the user query once),
+ * optionally runs the risk classifier and the speaker gate, builds the
+ * system prompt + message list, and streams the response.
+ *
+ * Output is a ReadableStream<TurnStreamPart> the route layer encodes for
+ * the wire (Phase 2 of the refactor plan). For this PR there is no route
+ * shell yet; both routes will switch over in Phase 1.5 behind the
+ * WWXD_USE_TURN_ENGINE flag.
+ *
+ * Mode-specific differences:
+ *   - solo: no gate; risk classifier always runs when there's a query.
+ *     History is a plain user/assistant trace.
+ *   - roundtable: gate runs unless this is the first speaker since the
+ *     last user message. Risk classifier only runs for that first speaker
+ *     so the disclaimer doesn't repeat per persona. History is rewritten
+ *     into the speaking persona's POV with `[Name]:` prefixes so the model
+ *     can reference others by name.
+ */
+
+import { streamText, generateText, type ModelMessage } from 'ai';
+import { stat } from 'node:fs/promises';
+import {
+  GATE_INSTRUCTION,
+  parseGateDecision,
+  shouldRunGate,
+  someoneHasSpokenSinceLastUser,
+} from './gate';
+import { cacheableProviderOptions, embeddingModelId, modelFor } from './llm';
+import { buildRetrievalBlock, type Tweet } from './persona';
+import { getCorpusBundle, type CorpusBundle } from './persona-cache';
+import {
+  embedQuery,
+  embeddingsPath,
+  hybridTopK,
+  loadEmbeddings,
+  type LoadedEmbeddings,
+} from './retrieve';
+import { classifyRisk, riskSystemAddendumFor } from './risk-classifier';
+
+const TOP_K = Number(process.env.RETRIEVE_TOP_K ?? '20');
+const GATE_ENABLED = process.env.ROUNDTABLE_GATE !== 'false';
+const QUERY_CACHE_MAX = 500;
+
+export type HistoryMessage = {
+  role: 'user' | 'assistant';
+  text: string;
+  /** Required for assistant messages in roundtable mode. */
+  speaker?: string;
+};
+
+export type RetrievedTweetMeta = {
+  id: string;
+  text: string;
+  url: string;
+  createdAt: string;
+  source: string;
+  title?: string;
+};
+
+export type Speaker = { username: string; displayName: string };
+
+export type TurnRequest = {
+  speaker: string;
+  speakers: Speaker[];
+  history: HistoryMessage[];
+  mode: 'solo' | 'roundtable';
+  signal?: AbortSignal;
+};
+
+export type TurnStreamPart =
+  | { type: 'text'; value: string }
+  | { type: 'gate-passed'; reason: string }
+  | { type: 'error'; message: string; code?: string };
+
+export type TurnResult = {
+  stream: ReadableStream<TurnStreamPart>;
+  retrievedMeta: RetrievedTweetMeta[];
+};
+
+// ─── Query-level embedding cache ──────────────────────────────────────────
+// Keyed by `(embeddingModelId, query)` so flipping models doesn't return
+// stale vectors. Simple FIFO eviction at QUERY_CACHE_MAX. Exposed clear()
+// for tests and for future "user logged out / wiped data" paths.
+
+const queryEmbedCache = new Map<string, Float32Array>();
+
+async function embedQueryCached(query: string): Promise<Float32Array> {
+  const key = `${embeddingModelId()}:${query}`;
+  const hit = queryEmbedCache.get(key);
+  if (hit) return hit;
+  const vec = await embedQuery(query);
+  if (queryEmbedCache.size >= QUERY_CACHE_MAX) {
+    const oldest = queryEmbedCache.keys().next().value;
+    if (oldest !== undefined) queryEmbedCache.delete(oldest);
+  }
+  queryEmbedCache.set(key, vec);
+  return vec;
+}
+
+export function clearQueryEmbedCache(): void {
+  queryEmbedCache.clear();
+}
+
+export function queryEmbedCacheSize(): number {
+  return queryEmbedCache.size;
+}
+
+// ─── Embeddings loader ────────────────────────────────────────────────────
+
+async function tryLoadEmbeddings(username: string): Promise<LoadedEmbeddings | null> {
+  try {
+    await stat(embeddingsPath(username));
+  } catch {
+    return null;
+  }
+  return loadEmbeddings(username);
+}
+
+function hasEmbeddingProvider(): boolean {
+  return Boolean(
+    process.env.OPENAI_API_KEY ||
+      process.env.EMBEDDING_API_KEY ||
+      process.env.LLM_API_KEY ||
+      process.env.EMBEDDING_BASE_URL ||
+      process.env.LLM_BASE_URL,
+  );
+}
+
+// ─── Message builders ─────────────────────────────────────────────────────
+
+function buildSoloMessages(history: HistoryMessage[]): {
+  messages: ModelMessage[];
+  lastUserText: string;
+} {
+  const messages: ModelMessage[] = [];
+  let lastUserText = '';
+  for (const msg of history) {
+    if (!msg.text.trim()) continue;
+    messages.push({ role: msg.role, content: msg.text });
+    if (msg.role === 'user') lastUserText = msg.text;
+  }
+  return { messages, lastUserText };
+}
+
+function buildPovMessages(
+  history: HistoryMessage[],
+  speakers: Speaker[],
+  self: string,
+): { messages: ModelMessage[]; lastUserText: string } {
+  const nameByUsername = new Map(speakers.map((s) => [s.username, s.displayName]));
+  const messages: ModelMessage[] = [];
+  let pending: string[] = [];
+  let lastUserText = '';
+
+  function flushPending(): void {
+    if (pending.length === 0) return;
+    messages.push({ role: 'user', content: pending.join('\n\n') });
+    pending = [];
+  }
+
+  for (const msg of history) {
+    if (!msg.text.trim()) continue;
+    if (msg.role === 'user') {
+      pending.push(`[User]: ${msg.text}`);
+      lastUserText = msg.text;
+    } else if (msg.role === 'assistant') {
+      if (msg.speaker === self) {
+        flushPending();
+        messages.push({ role: 'assistant', content: msg.text });
+      } else if (msg.speaker) {
+        const name = nameByUsername.get(msg.speaker) ?? msg.speaker;
+        pending.push(`[${name}]: ${msg.text}`);
+      }
+    }
+  }
+  flushPending();
+  return { messages, lastUserText };
+}
+
+function injectPreludeIntoLastUserMessage(
+  messages: ModelMessage[],
+  prelude: string,
+): ModelMessage[] {
+  if (!prelude) return messages;
+  if (messages.length === 0) {
+    return [{ role: 'user', content: prelude }];
+  }
+  const lastIdx = messages.length - 1;
+  const last = messages[lastIdx];
+  if (last.role !== 'user') {
+    return [...messages, { role: 'user', content: prelude }];
+  }
+  const existingParts = Array.isArray(last.content)
+    ? last.content
+    : [{ type: 'text' as const, text: last.content }];
+  const augmented: ModelMessage = {
+    role: 'user',
+    content: [{ type: 'text', text: prelude }, ...existingParts],
+  };
+  return [...messages.slice(0, lastIdx), augmented];
+}
+
+function buildRoundtableAddendum(speakers: Speaker[], self: string): string {
+  const others = speakers.filter((s) => s.username !== self);
+  if (others.length === 0) return '';
+  const selfName = speakers.find((s) => s.username === self)?.displayName ?? self;
+  const list = others.map((s) => `${s.displayName} (@${s.username})`).join(', ');
+  return `=== ROUNDTABLE MODE ===
+You're in a roundtable with: ${list}.
+
+The user is asking the whole group, not just one person. Share YOUR take in your voice — concisely, sharply, as ${selfName} would in a panel. If you're the first to speak, set the tone; don't wait for the others.
+
+If others have already spoken (their words appear in user messages as "[Their Name]: ..."), feel free to agree, disagree, build on, or push back by name. But you do NOT need to react to them — a fresh take is just as valid as a reaction.
+
+Stay fully in character. If the user asks about chat platforms, AI personas, simulation, or anything meta, respond as the real ${selfName} would respond to a journalist asking the same thing — engage with the substance, don't break the frame to comment on "being a simulation".`;
+}
+
+// ─── Stream helpers ───────────────────────────────────────────────────────
+
+function singlePartStream(part: TurnStreamPart): ReadableStream<TurnStreamPart> {
+  return new ReadableStream<TurnStreamPart>({
+    start(controller) {
+      controller.enqueue(part);
+      controller.close();
+    },
+  });
+}
+
+function wrapLlmStream(
+  textStream: AsyncIterable<string>,
+  signal: AbortSignal | undefined,
+): ReadableStream<TurnStreamPart> {
+  return new ReadableStream<TurnStreamPart>({
+    async start(controller) {
+      try {
+        for await (const chunk of textStream) {
+          if (signal?.aborted) {
+            controller.enqueue({ type: 'error', message: 'aborted', code: 'aborted' });
+            controller.close();
+            return;
+          }
+          controller.enqueue({ type: 'text', value: chunk });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        controller.enqueue({ type: 'error', message, code: 'upstream' });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+}
+
+// ─── runTurn ──────────────────────────────────────────────────────────────
+
+export async function runTurn(req: TurnRequest): Promise<TurnResult> {
+  const { speaker, speakers, history, mode, signal } = req;
+
+  // 1. Corpus bundle (cached).
+  const bundle: CorpusBundle = await getCorpusBundle(speaker);
+
+  // 2. Build the speaker's POV messages and extract their query.
+  const built =
+    mode === 'solo'
+      ? buildSoloMessages(history)
+      : buildPovMessages(history, speakers, speaker);
+  const { messages: povMessages, lastUserText } = built;
+
+  // 3. Decide whether risk + gate run this turn.
+  const isFirstSpeakerThisTurn =
+    mode === 'roundtable' ? !someoneHasSpokenSinceLastUser(history) : true;
+  const shouldClassifyRisk =
+    Boolean(lastUserText) && (mode === 'solo' || isFirstSpeakerThisTurn);
+
+  // 4. Retrieval + (optional) risk classification in parallel.
+  const embeddings = hasEmbeddingProvider() ? await tryLoadEmbeddings(speaker) : null;
+  const retrievalPromise = (async (): Promise<Tweet[]> => {
+    if (!lastUserText) return [];
+    try {
+      let queryVec: Float32Array | null = null;
+      if (embeddings) {
+        queryVec = await embedQueryCached(lastUserText);
+      }
+      const topIds = hybridTopK(embeddings, queryVec, bundle.bm25, lastUserText, TOP_K);
+      return topIds
+        .map((id) => bundle.tweetById.get(id))
+        .filter((t): t is Tweet => Boolean(t));
+    } catch (err) {
+      console.error('Turn retrieval failed, falling back to voice-only:', err);
+      return [];
+    }
+  })();
+  const riskPromise = shouldClassifyRisk ? classifyRisk(lastUserText) : Promise.resolve(null);
+  const [retrievedTweets, riskCategory] = await Promise.all([retrievalPromise, riskPromise]);
+
+  // 5. Prior-only personas skip the retrieval block (the static prompt
+  // already tells the model "no curated corpus attached").
+  const isPriorOnly = bundle.corpus.mode === 'prior-only';
+  const retrievalBlock = isPriorOnly ? '' : buildRetrievalBlock(retrievedTweets);
+  const addendum = mode === 'roundtable' ? buildRoundtableAddendum(speakers, speaker) : '';
+  const riskAddendum = riskSystemAddendumFor(riskCategory);
+
+  const retrievedMeta: RetrievedTweetMeta[] = retrievedTweets.map((t) => ({
+    id: t.id,
+    text: t.text,
+    url: t.url,
+    createdAt: t.createdAt,
+    source: t.source ?? 'tweet',
+    title: t.title,
+  }));
+
+  // 6. Roundtable gate: only later speakers run it. Skipped in solo.
+  if (
+    mode === 'roundtable' &&
+    GATE_ENABLED &&
+    !isFirstSpeakerThisTurn &&
+    shouldRunGate(speakers.length, Boolean(lastUserText))
+  ) {
+    try {
+      const gatePrelude = [addendum, retrievalBlock, GATE_INSTRUCTION]
+        .filter(Boolean)
+        .join('\n\n');
+      const gateMessages = injectPreludeIntoLastUserMessage(povMessages, gatePrelude);
+      const gateResult = await generateText({
+        model: modelFor('gate'),
+        system: bundle.staticPrompt,
+        messages: gateMessages,
+        providerOptions: cacheableProviderOptions(),
+      });
+      const decision = parseGateDecision(gateResult.text);
+      if (!decision.speak) {
+        return {
+          stream: singlePartStream({ type: 'gate-passed', reason: decision.reason }),
+          retrievedMeta,
+        };
+      }
+    } catch (err) {
+      console.error(`[turn-engine] @${speaker} gate failed:`, err);
+      // Fall through to speak path; better a noisy persona than a silent one.
+    }
+  }
+
+  // 7. Build the speak prelude and stream.
+  const prelude = [addendum, retrievalBlock].filter(Boolean).join('\n\n');
+  const finalMessages = injectPreludeIntoLastUserMessage(povMessages, prelude);
+  const systemPrompt = riskAddendum
+    ? `${bundle.staticPrompt}\n\n${riskAddendum}`
+    : bundle.staticPrompt;
+
+  const result = streamText({
+    model: modelFor('chat'),
+    system: systemPrompt,
+    messages: finalMessages,
+    providerOptions: cacheableProviderOptions(),
+    abortSignal: signal,
+  });
+
+  return {
+    stream: wrapLlmStream(result.textStream, signal),
+    retrievedMeta,
+  };
+}
