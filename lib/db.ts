@@ -26,6 +26,38 @@ export type ConversationWithDetails = Conversation & {
   messageCount: number;
 };
 
+/**
+ * Structured events the engine emits during a turn. Append-only, never
+ * mutated. Used for debugging ("why did persona X pass?"), audit trails,
+ * and as the raw substrate the eval system can replay against.
+ */
+export type ConversationEventKind =
+  | 'gate.passed'
+  | 'gate.spoke'
+  | 'retrieval'
+  | 'risk.classified'
+  | 'persona.started'
+  | 'persona.completed'
+  | 'persona.errored';
+
+export type ConversationEventInput = {
+  conversationId: string;
+  ordinal: number;
+  kind: ConversationEventKind;
+  speaker?: string | null;
+  payload?: unknown;
+};
+
+export type ConversationEvent = {
+  id: number;
+  conversationId: string;
+  ordinal: number;
+  kind: ConversationEventKind;
+  speaker: string | null;
+  payload: unknown;
+  createdAt: string;
+};
+
 let dbInstance: Database.Database | null = null;
 let dbInstancePath: string | null = null;
 
@@ -98,6 +130,18 @@ function initSchema(db: Database.Database): void {
       FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, ordinal);
+
+    CREATE TABLE IF NOT EXISTS conversation_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      speaker TEXT,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_events_conv ON conversation_events(conversation_id, ordinal);
 
     CREATE TABLE IF NOT EXISTS eval_runs (
       id TEXT PRIMARY KEY,
@@ -463,6 +507,91 @@ export function removePersonaFromAllConversations(username: string): {
   });
   tx();
   return { soloDeleted, roundtablesUpdated };
+}
+
+// ─── Conversation events ───────────────────────────────────────────────────
+
+/**
+ * Append a structured event tied to a conversation turn. Caller passes the
+ * `ordinal` of the message the event relates to (typically the assistant
+ * message currently being produced, or the user message that triggered the
+ * turn). Payload is serialized as JSON.
+ *
+ * Returns the row as stored, including the autoincremented `id` and the
+ * `createdAt` timestamp the DB assigned.
+ */
+export function appendEvent(input: ConversationEventInput): ConversationEvent {
+  const db = getDb();
+  const createdAt = new Date().toISOString();
+  const payload = JSON.stringify(input.payload ?? null);
+  const result = db
+    .prepare(
+      `INSERT INTO conversation_events
+       (conversation_id, ordinal, kind, speaker, payload, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.conversationId,
+      input.ordinal,
+      input.kind,
+      input.speaker ?? null,
+      payload,
+      createdAt,
+    );
+  return {
+    id: Number(result.lastInsertRowid),
+    conversationId: input.conversationId,
+    ordinal: input.ordinal,
+    kind: input.kind,
+    speaker: input.speaker ?? null,
+    payload: input.payload ?? null,
+    createdAt,
+  };
+}
+
+/**
+ * Load events for a conversation. Ordered by `(ordinal ASC, id ASC)` so the
+ * stream reads as a faithful replay. Optionally filtered by kind.
+ */
+export function loadEvents(
+  conversationId: string,
+  opts?: { kind?: ConversationEventKind },
+): ConversationEvent[] {
+  const db = getDb();
+  const rows = opts?.kind
+    ? db
+        .prepare(
+          `SELECT id, conversation_id, ordinal, kind, speaker, payload, created_at
+           FROM conversation_events
+           WHERE conversation_id = ? AND kind = ?
+           ORDER BY ordinal ASC, id ASC`,
+        )
+        .all(conversationId, opts.kind)
+    : db
+        .prepare(
+          `SELECT id, conversation_id, ordinal, kind, speaker, payload, created_at
+           FROM conversation_events
+           WHERE conversation_id = ?
+           ORDER BY ordinal ASC, id ASC`,
+        )
+        .all(conversationId);
+  return (rows as Array<{
+    id: number;
+    conversation_id: string;
+    ordinal: number;
+    kind: string;
+    speaker: string | null;
+    payload: string;
+    created_at: string;
+  }>).map((r) => ({
+    id: r.id,
+    conversationId: r.conversation_id,
+    ordinal: r.ordinal,
+    kind: r.kind as ConversationEventKind,
+    speaker: r.speaker,
+    payload: JSON.parse(r.payload) as unknown,
+    createdAt: r.created_at,
+  }));
 }
 
 // ─── Evals (unchanged) ─────────────────────────────────────────────────────
