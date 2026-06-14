@@ -19,9 +19,8 @@
   <a href="#contributing">Contribute</a>
 </p>
 
-<p align="center">
-  <a href="#caveats-worth-reading" title="More on what wwxd can and can't tell you"><img src=".github/assets/warning.svg" alt="WARNING — wwxd generates AI impressions of real people. The personas aren't the people they reference, aren't endorsed by them, and will sometimes misrepresent their views. Don't quote outputs. Don't take advice from them. Treat the whole thing as well-researched fan fiction." /></a>
-</p>
+> [!WARNING]
+> **wwxd generates AI _impressions_ of real people.** The personas aren't the people they reference, aren't endorsed by them, and will sometimes misrepresent their views. Don't quote outputs. Don't take advice from them. Treat the whole thing as well-researched fan fiction.
 
 ## Get going
 
