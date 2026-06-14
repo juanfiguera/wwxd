@@ -45,7 +45,8 @@ export type Corpus = {
 const MAX_VOICE_TWEETS = 40;
 
 export function corpusPath(username: string): string {
-  return resolve(process.cwd(), 'data', `${username}.json`);
+  const dir = process.env.WWXD_DATA_DIR ?? resolve(process.cwd(), 'data');
+  return resolve(dir, `${username}.json`);
 }
 
 export async function loadCorpus(username: string): Promise<Corpus> {

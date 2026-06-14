@@ -8,14 +8,8 @@ import {
   someoneHasSpokenSinceLastUser,
 } from '@/lib/gate';
 import { cacheableProviderOptions, modelFor } from '@/lib/llm';
-import {
-  buildStaticPersona,
-  buildRetrievalBlock,
-  corpusPath,
-  loadCorpus,
-  type Corpus,
-  type Tweet,
-} from '@/lib/persona';
+import { buildRetrievalBlock, type Tweet } from '@/lib/persona';
+import { getCorpusBundle, type CorpusBundle } from '@/lib/persona-cache';
 import {
   embedQuery,
   embeddingsPath,
@@ -23,7 +17,6 @@ import {
   loadEmbeddings,
   type LoadedEmbeddings,
 } from '@/lib/retrieve';
-import { buildBm25, type Bm25Index } from '@/lib/bm25';
 import { classifyRisk, riskSystemAddendumFor } from '@/lib/risk-classifier';
 
 export const maxDuration = 300;
@@ -44,29 +37,6 @@ const Body = z.object({
     }),
   ),
 });
-
-type CorpusCache = {
-  mtime: number;
-  corpus: Corpus;
-  staticPrompt: string;
-  tweetById: Map<string, Tweet>;
-  bm25: Bm25Index;
-};
-const corpusCache = new Map<string, CorpusCache>();
-
-async function getCorpusBundle(username: string): Promise<CorpusCache> {
-  const path = corpusPath(username);
-  const { mtimeMs } = await stat(path);
-  const cached = corpusCache.get(username);
-  if (cached && cached.mtime === mtimeMs) return cached;
-  const corpus = await loadCorpus(username);
-  const staticPrompt = buildStaticPersona(corpus);
-  const tweetById = new Map(corpus.tweets.map((t) => [t.id, t]));
-  const bm25 = buildBm25(corpus.tweets.filter((t) => t.text.length > 0));
-  const entry: CorpusCache = { mtime: mtimeMs, corpus, staticPrompt, tweetById, bm25 };
-  corpusCache.set(username, entry);
-  return entry;
-}
 
 async function tryLoadEmbeddings(username: string): Promise<LoadedEmbeddings | null> {
   try {
@@ -162,7 +132,7 @@ export async function POST(req: Request): Promise<Response> {
   }
   const { speaker, speakers, history } = parsed.data;
 
-  let bundle: CorpusCache;
+  let bundle: CorpusBundle;
   try {
     bundle = await getCorpusBundle(speaker);
   } catch (err) {
