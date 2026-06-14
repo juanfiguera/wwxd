@@ -24,6 +24,7 @@
 
 import { streamText, generateText, type ModelMessage } from 'ai';
 import { stat } from 'node:fs/promises';
+import { appendEvent, type ConversationEventKind } from './db';
 import {
   GATE_INSTRUCTION,
   parseGateDecision,
@@ -70,6 +71,14 @@ export type TurnRequest = {
   history: HistoryMessage[];
   mode: 'solo' | 'roundtable';
   signal?: AbortSignal;
+  /**
+   * Optional conversation tracing. When both are present the engine writes
+   * structured rows to conversation_events at gate / retrieval / risk /
+   * persona start+complete+error. Missing either suppresses logging — used
+   * by tests and by callers that don't have a persisted conversation yet.
+   */
+  conversationId?: string;
+  ordinal?: number;
 };
 
 export type TurnStreamPart =
@@ -231,24 +240,55 @@ function singlePartStream(part: TurnStreamPart): ReadableStream<TurnStreamPart> 
   });
 }
 
+type EmitFn = (kind: ConversationEventKind, payload?: unknown) => void;
+
+/**
+ * Build a per-turn emit() that writes to conversation_events only when
+ * the caller supplied both a conversationId and an ordinal. Failed writes
+ * are swallowed (the persona must still get to speak) but logged.
+ */
+function makeEmit(req: TurnRequest): EmitFn {
+  if (req.conversationId === undefined || req.ordinal === undefined) {
+    return () => {
+      /* tracing disabled for this turn */
+    };
+  }
+  const conversationId = req.conversationId;
+  const ordinal = req.ordinal;
+  const speaker = req.speaker;
+  return (kind, payload) => {
+    try {
+      appendEvent({ conversationId, ordinal, kind, speaker, payload });
+    } catch (err) {
+      console.error('[turn-engine] appendEvent failed:', err);
+    }
+  };
+}
+
 function wrapLlmStream(
   textStream: AsyncIterable<string>,
   signal: AbortSignal | undefined,
+  emit: EmitFn,
 ): ReadableStream<TurnStreamPart> {
   return new ReadableStream<TurnStreamPart>({
     async start(controller) {
+      let chars = 0;
       try {
         for await (const chunk of textStream) {
           if (signal?.aborted) {
             controller.enqueue({ type: 'error', message: 'aborted', code: 'aborted' });
+            emit('persona.errored', { message: 'aborted', code: 'aborted', chars });
             controller.close();
             return;
           }
+          chars += chunk.length;
           controller.enqueue({ type: 'text', value: chunk });
         }
+        emit('persona.completed', { chars });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         controller.enqueue({ type: 'error', message, code: 'upstream' });
+        emit('persona.errored', { message, code: 'upstream', chars });
       } finally {
         controller.close();
       }
@@ -260,6 +300,8 @@ function wrapLlmStream(
 
 export async function runTurn(req: TurnRequest): Promise<TurnResult> {
   const { speaker, speakers, history, mode, signal } = req;
+  const emit = makeEmit(req);
+  emit('persona.started', { mode });
 
   // 1. Corpus bundle (cached).
   const bundle: CorpusBundle = await getCorpusBundle(speaker);
@@ -297,6 +339,13 @@ export async function runTurn(req: TurnRequest): Promise<TurnResult> {
   })();
   const riskPromise = shouldClassifyRisk ? classifyRisk(lastUserText) : Promise.resolve(null);
   const [retrievedTweets, riskCategory] = await Promise.all([retrievalPromise, riskPromise]);
+  emit('retrieval', {
+    topK: TOP_K,
+    hits: retrievedTweets.length,
+    tweetIds: retrievedTweets.map((t) => t.id),
+    query: lastUserText,
+  });
+  if (shouldClassifyRisk) emit('risk.classified', { category: riskCategory, query: lastUserText });
 
   // 5. Prior-only personas skip the retrieval block (the static prompt
   // already tells the model "no curated corpus attached").
@@ -334,11 +383,13 @@ export async function runTurn(req: TurnRequest): Promise<TurnResult> {
       });
       const decision = parseGateDecision(gateResult.text);
       if (!decision.speak) {
+        emit('gate.passed', { reason: decision.reason });
         return {
           stream: singlePartStream({ type: 'gate-passed', reason: decision.reason }),
           retrievedMeta,
         };
       }
+      emit('gate.spoke');
     } catch (err) {
       console.error(`[turn-engine] @${speaker} gate failed:`, err);
       // Fall through to speak path; better a noisy persona than a silent one.
@@ -361,7 +412,7 @@ export async function runTurn(req: TurnRequest): Promise<TurnResult> {
   });
 
   return {
-    stream: wrapLlmStream(result.textStream, signal),
+    stream: wrapLlmStream(result.textStream, signal, emit),
     retrievedMeta,
   };
 }

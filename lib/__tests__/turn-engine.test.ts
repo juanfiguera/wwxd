@@ -46,6 +46,12 @@ vi.mock('../risk-classifier', async (importOriginal) => {
 });
 
 // Imported AFTER vi.mock declarations.
+import {
+  createRoundtable,
+  getDb,
+  getOrCreateSolo,
+  loadEvents,
+} from '../db';
 import { invalidate } from '../persona-cache';
 import {
   clearQueryEmbedCache,
@@ -61,6 +67,7 @@ import {
 let tmpDir = '';
 let originalDataDir: string | undefined;
 let originalEmbeddingApiKey: string | undefined;
+let originalDbPath: string | undefined;
 
 function corpusFixture(username: string, mode: 'grounded' | 'prior-only' = 'grounded') {
   return {
@@ -131,7 +138,9 @@ beforeAll(async () => {
   tmpDir = await mkdtemp(resolve(tmpdir(), 'wwxd-engine-'));
   originalDataDir = process.env.WWXD_DATA_DIR;
   originalEmbeddingApiKey = process.env.OPENAI_API_KEY;
+  originalDbPath = process.env.WWXD_DB_PATH;
   process.env.WWXD_DATA_DIR = tmpDir;
+  process.env.WWXD_DB_PATH = resolve(tmpDir, 'wwxd.db');
   // Force embeddings OFF for most tests; turned ON inline where needed.
   delete process.env.OPENAI_API_KEY;
   delete process.env.EMBEDDING_API_KEY;
@@ -145,6 +154,8 @@ afterAll(async () => {
   else process.env.WWXD_DATA_DIR = originalDataDir;
   if (originalEmbeddingApiKey === undefined) delete process.env.OPENAI_API_KEY;
   else process.env.OPENAI_API_KEY = originalEmbeddingApiKey;
+  if (originalDbPath === undefined) delete process.env.WWXD_DB_PATH;
+  else process.env.WWXD_DB_PATH = originalDbPath;
   await rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -394,5 +405,152 @@ describe('runTurn — query embedding cache', () => {
     expect(queryEmbedCacheSize()).toBe(1);
     clearQueryEmbedCache();
     expect(queryEmbedCacheSize()).toBe(0);
+  });
+});
+
+describe('runTurn — event log', () => {
+  beforeEach(() => {
+    // Solo conversations are 1:1 with personas, so repeated tests against
+    // the same persona share a conversation. Wipe events between tests so
+    // assertions see only their own.
+    getDb().exec('DELETE FROM conversation_events');
+  });
+
+  it('writes no events when conversationId or ordinal is missing', async () => {
+    await writeCorpus('paulg');
+    const conv = getOrCreateSolo('paulg');
+    // Run with NO tracing fields.
+    await runTurn({
+      speaker: 'paulg',
+      speakers: [{ username: 'paulg', displayName: 'Paul Graham' }],
+      history: [{ role: 'user', text: 'hi' }],
+      mode: 'solo',
+    }).then((r) => drainStream(r.stream));
+    expect(loadEvents(conv.id)).toEqual([]);
+  });
+
+  it('emits the full sequence for a successful solo turn', async () => {
+    await writeCorpus('paulg');
+    const conv = getOrCreateSolo('paulg');
+    const result = await runTurn({
+      speaker: 'paulg',
+      speakers: [{ username: 'paulg', displayName: 'Paul Graham' }],
+      history: [{ role: 'user', text: 'How do I think about hiring?' }],
+      mode: 'solo',
+      conversationId: conv.id,
+      ordinal: 1,
+    });
+    await drainStream(result.stream);
+
+    const events = loadEvents(conv.id);
+    const kinds = events.map((e) => e.kind);
+    expect(kinds).toEqual([
+      'persona.started',
+      'retrieval',
+      'risk.classified',
+      'persona.completed',
+    ]);
+    expect(events.every((e) => e.speaker === 'paulg')).toBe(true);
+    expect(events.every((e) => e.ordinal === 1)).toBe(true);
+
+    // Payloads carry useful diagnostic detail.
+    const retrieval = events.find((e) => e.kind === 'retrieval')?.payload as {
+      hits: number;
+      query: string;
+    };
+    expect(retrieval.query).toBe('How do I think about hiring?');
+    expect(typeof retrieval.hits).toBe('number');
+    const completed = events.find((e) => e.kind === 'persona.completed')?.payload as {
+      chars: number;
+    };
+    expect(completed.chars).toBe('Hello world.'.length);
+  });
+
+  it('emits gate.passed when the gate says NO and no persona.completed', async () => {
+    await writeCorpus('naval');
+    const conv = createRoundtable(['paulg', 'naval']);
+    mockGenerateText.mockResolvedValue({ text: 'NO: paul covered it.' });
+    const result = await runTurn({
+      speaker: 'naval',
+      speakers: SPEAKERS,
+      history: [
+        { role: 'user', text: 'What matters most?' },
+        { role: 'assistant', speaker: 'paulg', text: 'Talk to users.' },
+      ],
+      mode: 'roundtable',
+      conversationId: conv.id,
+      ordinal: 3,
+    });
+    await drainStream(result.stream);
+
+    const events = loadEvents(conv.id);
+    const kinds = events.map((e) => e.kind);
+    expect(kinds).toContain('gate.passed');
+    expect(kinds).not.toContain('gate.spoke');
+    expect(kinds).not.toContain('persona.completed');
+    const gate = events.find((e) => e.kind === 'gate.passed')?.payload as { reason: string };
+    expect(gate.reason).toBe('paul covered it.');
+  });
+
+  it('emits gate.spoke + persona.completed when the gate says YES', async () => {
+    await writeCorpus('naval');
+    const conv = createRoundtable(['paulg', 'naval']);
+    mockGenerateText.mockResolvedValue({ text: 'YES — adding a take.' });
+    const result = await runTurn({
+      speaker: 'naval',
+      speakers: SPEAKERS,
+      history: [
+        { role: 'user', text: 'What matters most?' },
+        { role: 'assistant', speaker: 'paulg', text: 'Talk to users.' },
+      ],
+      mode: 'roundtable',
+      conversationId: conv.id,
+      ordinal: 3,
+    });
+    await drainStream(result.stream);
+
+    const kinds = loadEvents(conv.id).map((e) => e.kind);
+    expect(kinds).toContain('gate.spoke');
+    expect(kinds).toContain('persona.completed');
+    expect(kinds).not.toContain('gate.passed');
+  });
+
+  it('emits persona.errored with the provider message when the stream throws', async () => {
+    await writeCorpus('paulg');
+    const conv = getOrCreateSolo('paulg');
+    mockStreamText.mockReturnValue({
+      textStream: fakeErrorStream('Your credit balance is too low.'),
+    });
+    const result = await runTurn({
+      speaker: 'paulg',
+      speakers: [{ username: 'paulg', displayName: 'Paul Graham' }],
+      history: [{ role: 'user', text: 'hi' }],
+      mode: 'solo',
+      conversationId: conv.id,
+      ordinal: 1,
+    });
+    await drainStream(result.stream);
+
+    const errored = loadEvents(conv.id).find((e) => e.kind === 'persona.errored');
+    expect(errored).toBeDefined();
+    const payload = errored?.payload as { message: string; code: string };
+    expect(payload.message).toBe('Your credit balance is too low.');
+    expect(payload.code).toBe('upstream');
+  });
+
+  it('skips risk.classified when there is no user query', async () => {
+    await writeCorpus('paulg');
+    const conv = getOrCreateSolo('paulg');
+    await runTurn({
+      speaker: 'paulg',
+      speakers: [{ username: 'paulg', displayName: 'Paul Graham' }],
+      history: [],
+      mode: 'solo',
+      conversationId: conv.id,
+      ordinal: 0,
+    }).then((r) => drainStream(r.stream));
+
+    const kinds = loadEvents(conv.id).map((e) => e.kind);
+    expect(kinds).not.toContain('risk.classified');
   });
 });

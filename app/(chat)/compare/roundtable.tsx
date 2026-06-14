@@ -249,6 +249,7 @@ export function RoundtableView({
               history: working
                 .slice(0, -1)
                 .map((m) => ({ role: m.role, text: m.text, speaker: m.speaker })),
+              ...(conversationId ? { conversationId } : {}),
             }),
           });
 

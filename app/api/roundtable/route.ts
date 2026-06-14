@@ -15,6 +15,13 @@ const Body = z.object({
       speaker: z.string().optional(),
     }),
   ),
+  /**
+   * Optional. When present, the engine writes structured rows to
+   * conversation_events tagged with `(conversationId, ordinal)` for
+   * downstream debugging and evals. `ordinal` defaults to the position of
+   * the assistant message about to be produced (history length + 1).
+   */
+  conversationId: z.string().min(1).optional(),
 });
 
 /**
@@ -36,11 +43,19 @@ export async function POST(req: Request): Promise<Response> {
       { status: 400 },
     );
   }
-  const { speaker, speakers, history } = parsed.data;
+  const { speaker, speakers, history, conversationId } = parsed.data;
+  const ordinal = history.length + 1;
 
   let turn;
   try {
-    turn = await runTurn({ speaker, speakers, history, mode: 'roundtable' });
+    turn = await runTurn({
+      speaker,
+      speakers,
+      history,
+      mode: 'roundtable',
+      conversationId,
+      ordinal,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return Response.json(
