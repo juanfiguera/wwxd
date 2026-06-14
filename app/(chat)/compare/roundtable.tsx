@@ -15,7 +15,6 @@ import {
   conversationMessagesUrl,
   roundtableKey as roundtableSWRKey,
   type Conversation,
-  type StoredMessageWire,
 } from '@/app/components/conversation-cache';
 import { fetchJson } from '@/app/components/fetch-utils';
 import {
@@ -26,54 +25,14 @@ import {
 } from '@/app/components/sources-panel';
 import { personaStyle, tintHex } from '@/lib/persona-styling';
 import type { PersonaSummary } from './compare';
+import {
+  rtToStored,
+  storedToRt,
+  uid,
+  type RoundtableMessage,
+} from './roundtable-message';
 
-
-export type RoundtableMessage = {
-  id: string;
-  role: 'user' | 'assistant';
-  text: string;
-  speaker?: string;
-  retrievedTweets?: RetrievedTweetMeta[];
-  passed?: boolean;
-  passReason?: string;
-};
-
-function uid(): string {
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function rtToStored(m: RoundtableMessage): StoredMessageWire {
-  const meta: Record<string, unknown> = {};
-  if (m.retrievedTweets) meta.retrievedTweets = m.retrievedTweets;
-  if (m.passed) {
-    meta.passed = true;
-    meta.passReason = m.passReason;
-  }
-  return {
-    id: m.id,
-    role: m.role,
-    speaker: m.speaker ?? null,
-    text: m.text,
-    metadata: Object.keys(meta).length > 0 ? meta : null,
-  };
-}
-
-function storedToRt(s: StoredMessageWire): RoundtableMessage {
-  const meta = (s.metadata ?? {}) as {
-    retrievedTweets?: RetrievedTweetMeta[];
-    passed?: boolean;
-    passReason?: string;
-  };
-  return {
-    id: s.id,
-    role: s.role,
-    text: s.text,
-    speaker: s.speaker ?? undefined,
-    retrievedTweets: meta.retrievedTweets,
-    passed: meta.passed,
-    passReason: meta.passReason,
-  };
-}
+export type { RoundtableMessage };
 
 export function RoundtableView({
   personas,
