@@ -210,8 +210,26 @@ describe('listConversations', () => {
   });
 });
 
+describe('addParticipant idempotency', () => {
+  it('adding the same persona twice keeps a single participant row', () => {
+    const rt = createRoundtable(['paulg']);
+    addParticipant(rt.id, 'sama');
+    addParticipant(rt.id, 'sama');
+    addParticipant(rt.id, 'sama');
+    expect(getParticipants(rt.id)).toEqual(['paulg', 'sama']);
+  });
+
+  it('removeParticipant followed by addParticipant rejoins cleanly', () => {
+    const rt = createRoundtable(['paulg', 'sama']);
+    removeParticipant(rt.id, 'sama');
+    expect(getParticipants(rt.id)).toEqual(['paulg']);
+    addParticipant(rt.id, 'sama');
+    expect(getParticipants(rt.id)).toEqual(['paulg', 'sama']);
+  });
+});
+
 describe('removePersonaFromAllConversations', () => {
-  it('deletes the solo conversation and stamps left_at on roundtables', () => {
+  it('deletes the solo conversation and removes the persona from roundtables', () => {
     const solo = getOrCreateSolo('paulg');
     saveMessages(solo.id, [msg({ id: '1' })]);
     const rt = createRoundtable(['paulg', 'sama']);
@@ -226,5 +244,53 @@ describe('removePersonaFromAllConversations', () => {
     expect(getParticipants(rt.id)).toEqual(['sama']);
     // paulg's past message is kept (history)
     expect(loadMessages(rt.id)).toHaveLength(1);
+  });
+});
+
+describe('participants schema migration (Phase 4.1)', () => {
+  it('migrates from old left_at / composite-PK schema, deduping by earliest joined_at', async () => {
+    // Seed a database with the pre-migration schema, write some rows that
+    // would have been impossible under the new PK (same persona in same
+    // conversation with different joined_at), then re-open via getDb() and
+    // verify the migration ran.
+    const Database = (await import('better-sqlite3')).default;
+    const path = process.env.WWXD_DB_PATH!;
+    const seed = new Database(path);
+    seed.exec(`
+      CREATE TABLE conversations (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('solo', 'roundtable')),
+        title TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE conversation_participants (
+        conversation_id TEXT NOT NULL,
+        persona_username TEXT NOT NULL,
+        joined_at TEXT NOT NULL,
+        left_at TEXT,
+        PRIMARY KEY (conversation_id, persona_username, joined_at),
+        FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      );
+      INSERT INTO conversations VALUES ('c1', 'roundtable', 'Test', '2026-01-01', '2026-01-01');
+      INSERT INTO conversation_participants VALUES ('c1', 'paulg', '2026-01-01T00:00:00Z', NULL);
+      INSERT INTO conversation_participants VALUES ('c1', 'paulg', '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z');
+      INSERT INTO conversation_participants VALUES ('c1', 'naval', '2026-01-04T00:00:00Z', NULL);
+      INSERT INTO conversation_participants VALUES ('c1', 'sama',  '2026-01-05T00:00:00Z', '2026-01-06T00:00:00Z');
+    `);
+    seed.close();
+
+    // First read through the production helpers triggers the migration.
+    expect(getParticipants('c1').sort()).toEqual(['naval', 'paulg']);
+
+    // The migration should be byte-identical on a second open.
+    expect(getParticipants('c1').sort()).toEqual(['naval', 'paulg']);
+  });
+
+  it('is a no-op when the schema is already migrated', async () => {
+    const rt = createRoundtable(['paulg', 'naval']);
+    expect(getParticipants(rt.id)).toEqual(['paulg', 'naval']);
+    // Re-running getDb shouldn't disturb the new-schema rows.
+    expect(getParticipants(rt.id)).toEqual(['paulg', 'naval']);
   });
 });

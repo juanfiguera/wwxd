@@ -78,15 +78,53 @@ export function getDb(): Database.Database {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   initSchema(db);
+  migrateParticipantsTable(db);
   dbInstance = db;
   dbInstancePath = path;
   return db;
 }
 
 /**
+ * Phase 4.1 migration. Earlier versions had `conversation_participants` with
+ * a `left_at TEXT NULL` column and a composite PK including `joined_at`,
+ * speculatively supporting a "leave and rejoin" flow that never shipped.
+ *
+ * Drop both: only the earliest `joined_at` survives per (conversation_id,
+ * persona_username) pair, and `left_at` goes away entirely. Idempotent —
+ * no-op on databases that were created post-migration.
+ */
+function migrateParticipantsTable(db: Database.Database): void {
+  const cols = db.prepare(`PRAGMA table_info(conversation_participants)`).all() as Array<{
+    name: string;
+  }>;
+  const hasLeftAt = cols.some((c) => c.name === 'left_at');
+  if (!hasLeftAt) return;
+
+  db.exec(`
+    CREATE TABLE conversation_participants_new (
+      conversation_id TEXT NOT NULL,
+      persona_username TEXT NOT NULL,
+      joined_at TEXT NOT NULL,
+      PRIMARY KEY (conversation_id, persona_username),
+      FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    );
+    INSERT INTO conversation_participants_new (conversation_id, persona_username, joined_at)
+      SELECT conversation_id, persona_username, MIN(joined_at)
+      FROM conversation_participants
+      WHERE left_at IS NULL
+      GROUP BY conversation_id, persona_username;
+    DROP TABLE conversation_participants;
+    ALTER TABLE conversation_participants_new RENAME TO conversation_participants;
+    CREATE INDEX idx_participants_conv ON conversation_participants(conversation_id);
+    CREATE INDEX idx_participants_persona ON conversation_participants(persona_username);
+  `);
+}
+
+/**
  * Conversations carry a stable UUID identity. Participants are a separate
- * many-to-many relation with joined_at / left_at, so a roundtable can gain
- * and lose members over its lifetime without the conversation forking.
+ * many-to-many relation keyed on (conversation_id, persona_username); the
+ * `joined_at` column is kept purely for ordering. Removing a participant
+ * is a DELETE — there's no "leave and rejoin with history" semantics.
  *
  * Messages are keyed on (id, conversation_id) so the same client-generated
  * id can in principle exist in two different conversations. This rules out
@@ -106,8 +144,7 @@ function initSchema(db: Database.Database): void {
       conversation_id TEXT NOT NULL,
       persona_username TEXT NOT NULL,
       joined_at TEXT NOT NULL,
-      left_at TEXT,
-      PRIMARY KEY (conversation_id, persona_username, joined_at),
+      PRIMARY KEY (conversation_id, persona_username),
       FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_participants_conv ON conversation_participants(conversation_id);
@@ -183,19 +220,17 @@ function rowToConversation(r: {
 /**
  * Resolve (or create) the single solo conversation for a persona.
  * Solo conversations are 1:1 with personas — they accumulate history over
- * time but never gain/lose participants. The partial unique index on
- * conversation_participants enforces "at most one active solo per persona".
+ * time but never gain/lose participants.
  */
 export function getOrCreateSolo(username: string): Conversation {
   const db = getDb();
   const now = new Date().toISOString();
-  // Try to find the existing active solo conversation.
   const existing = db
     .prepare(
       `SELECT c.id, c.kind, c.title, c.created_at, c.updated_at
        FROM conversations c
        JOIN conversation_participants p ON c.id = p.conversation_id
-       WHERE c.kind = 'solo' AND p.persona_username = ? AND p.left_at IS NULL
+       WHERE c.kind = 'solo' AND p.persona_username = ?
        LIMIT 1`,
     )
     .get(username) as
@@ -210,8 +245,8 @@ export function getOrCreateSolo(username: string): Conversation {
        VALUES (?, 'solo', NULL, ?, ?)`,
     ).run(id, now, now);
     db.prepare(
-      `INSERT INTO conversation_participants(conversation_id, persona_username, joined_at, left_at)
-       VALUES (?, ?, ?, NULL)`,
+      `INSERT INTO conversation_participants(conversation_id, persona_username, joined_at)
+       VALUES (?, ?, ?)`,
     ).run(id, username, now);
   });
   tx();
@@ -245,8 +280,8 @@ export function createRoundtable(
        VALUES (?, 'roundtable', ?, ?, ?)`,
     ).run(id, title ?? null, now, now);
     const insert = db.prepare(
-      `INSERT INTO conversation_participants(conversation_id, persona_username, joined_at, left_at)
-       VALUES (?, ?, ?, NULL)`,
+      `INSERT INTO conversation_participants(conversation_id, persona_username, joined_at)
+       VALUES (?, ?, ?)`,
     );
     // Dedupe in case the caller passed the same persona twice.
     for (const username of Array.from(new Set(participants))) {
@@ -275,13 +310,13 @@ export function getConversation(id: string): Conversation | null {
   return row ? rowToConversation(row) : null;
 }
 
-/** Active participants (no left_at), in join order. */
+/** Participants of a conversation, in join order. */
 export function getParticipants(conversationId: string): string[] {
   const db = getDb();
   const rows = db
     .prepare(
       `SELECT persona_username FROM conversation_participants
-       WHERE conversation_id = ? AND left_at IS NULL
+       WHERE conversation_id = ?
        ORDER BY joined_at ASC`,
     )
     .all(conversationId) as { persona_username: string }[];
@@ -289,9 +324,8 @@ export function getParticipants(conversationId: string): string[] {
 }
 
 /**
- * Add a participant to a roundtable. Idempotent: if the persona is already
- * active in this conversation, no-op. If they had left previously, a fresh
- * participation row records the re-join (history of left_at rows is kept).
+ * Add a participant to a roundtable. Idempotent — re-adding the same
+ * username is a no-op (the PK collision is silently absorbed).
  */
 export function addParticipant(conversationId: string, username: string): void {
   const db = getDb();
@@ -302,26 +336,22 @@ export function addParticipant(conversationId: string, username: string): void {
   }
   const now = new Date().toISOString();
   const tx = db.transaction(() => {
-    const active = db
+    const result = db
       .prepare(
-        `SELECT 1 FROM conversation_participants
-         WHERE conversation_id = ? AND persona_username = ? AND left_at IS NULL`,
+        `INSERT OR IGNORE INTO conversation_participants(conversation_id, persona_username, joined_at)
+         VALUES (?, ?, ?)`,
       )
-      .get(conversationId, username);
-    if (active) return;
-    db.prepare(
-      `INSERT INTO conversation_participants(conversation_id, persona_username, joined_at, left_at)
-       VALUES (?, ?, ?, NULL)`,
-    ).run(conversationId, username, now);
-    db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(now, conversationId);
+      .run(conversationId, username, now);
+    if (result.changes > 0) {
+      db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(now, conversationId);
+    }
   });
   tx();
 }
 
 /**
- * Remove a participant from a roundtable by stamping left_at on their
- * active row. Past messages from them stay in the conversation history.
- * Idempotent: no-op if they aren't an active participant.
+ * Remove a participant from a roundtable. Past messages from them stay in
+ * the conversation history (those live in `messages`, not here). Idempotent.
  */
 export function removeParticipant(conversationId: string, username: string): void {
   const db = getDb();
@@ -329,11 +359,10 @@ export function removeParticipant(conversationId: string, username: string): voi
   const tx = db.transaction(() => {
     const result = db
       .prepare(
-        `UPDATE conversation_participants
-         SET left_at = ?
-         WHERE conversation_id = ? AND persona_username = ? AND left_at IS NULL`,
+        `DELETE FROM conversation_participants
+         WHERE conversation_id = ? AND persona_username = ?`,
       )
-      .run(now, conversationId, username);
+      .run(conversationId, username);
     if (result.changes > 0) {
       db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(now, conversationId);
     }
@@ -452,7 +481,7 @@ export function listConversations(opts?: {
 
   const partsStmt = db.prepare(
     `SELECT persona_username FROM conversation_participants
-     WHERE conversation_id = ? AND left_at IS NULL
+     WHERE conversation_id = ?
      ORDER BY joined_at ASC`,
   );
   return rows.map((r) => {
@@ -468,10 +497,11 @@ export function listConversations(opts?: {
 }
 
 /**
- * When a persona is deleted, remove it as an active participant from every
- * conversation. Solo conversations for that persona get deleted outright;
- * roundtables they were part of keep their history and just mark them as
- * left. Returns a small summary so the route can log/toast.
+ * When a persona is deleted, remove them from every conversation. Solo
+ * conversations for that persona get deleted outright; roundtables keep
+ * their message history (those rows live in `messages`, not here) but the
+ * participant row is removed. Returns a small summary so the route can
+ * log/toast.
  */
 export function removePersonaFromAllConversations(username: string): {
   soloDeleted: boolean;
@@ -482,28 +512,38 @@ export function removePersonaFromAllConversations(username: string): {
   let soloDeleted = false;
   let roundtablesUpdated = 0;
   const tx = db.transaction(() => {
-    // Delete solo conversation if any
     const solo = db
       .prepare(
         `SELECT c.id FROM conversations c
          JOIN conversation_participants p ON c.id = p.conversation_id
-         WHERE c.kind = 'solo' AND p.persona_username = ? AND p.left_at IS NULL`,
+         WHERE c.kind = 'solo' AND p.persona_username = ?`,
       )
       .get(username) as { id: string } | undefined;
     if (solo) {
       db.prepare(`DELETE FROM conversations WHERE id = ?`).run(solo.id);
       soloDeleted = true;
     }
-    // Mark active roundtable participations as left
+    // Capture affected roundtables before the delete so we can bump their
+    // updated_at after.
+    const affected = db
+      .prepare(
+        `SELECT p.conversation_id AS id FROM conversation_participants p
+         JOIN conversations c ON c.id = p.conversation_id
+         WHERE p.persona_username = ? AND c.kind = 'roundtable'`,
+      )
+      .all(username) as Array<{ id: string }>;
     const result = db
       .prepare(
-        `UPDATE conversation_participants
-         SET left_at = ?
-         WHERE persona_username = ? AND left_at IS NULL
+        `DELETE FROM conversation_participants
+         WHERE persona_username = ?
            AND conversation_id IN (SELECT id FROM conversations WHERE kind = 'roundtable')`,
       )
-      .run(now, username);
+      .run(username);
     roundtablesUpdated = result.changes;
+    if (affected.length > 0) {
+      const bump = db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`);
+      for (const row of affected) bump.run(now, row.id);
+    }
   });
   tx();
   return { soloDeleted, roundtablesUpdated };
