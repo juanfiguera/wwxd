@@ -638,6 +638,39 @@ describe('runTurn — Phase 2.2 partial persistence', () => {
     expect(persisted!.text).toBe('first ');
   });
 
+  it('cost guard short-circuits a runaway generation when WWXD_MAX_CHARS_PER_TURN is set', async () => {
+    await writeCorpus('paulg');
+    const conv = getOrCreateSolo('paulg');
+    // Set the cap to 5 — third chunk pushes us past it.
+    process.env.WWXD_MAX_CHARS_PER_TURN = '5';
+    // Re-import the engine so the module re-reads the env var.
+    vi.resetModules();
+    const reimported = await import('../turn-engine');
+    mockStreamText.mockReturnValue({
+      textStream: reimported.runTurn
+        ? fakeTextStream(['1234', '5678', '9012'])
+        : fakeTextStream(['1234', '5678', '9012']),
+    });
+    const result = await reimported.runTurn({
+      speaker: 'paulg',
+      speakers: [{ username: 'paulg', displayName: 'Paul Graham' }],
+      history: [{ role: 'user', text: 'hi' }],
+      mode: 'solo',
+      conversationId: conv.id,
+      ordinal: 1,
+      assistantMessageId: 'asst-cost-guard',
+    });
+    const parts = await drainStream(result.stream);
+    delete process.env.WWXD_MAX_CHARS_PER_TURN;
+
+    // Should have emitted at least one text part plus an error part.
+    expect(parts.find((p) => p.type === 'error' && p.code === 'cost-guard')).toBeDefined();
+    // Persisted message should be the partial accumulated text.
+    const persisted = loadMessages(conv.id).find((m) => m.id === 'asst-cost-guard');
+    expect(persisted).toBeDefined();
+    expect(persisted!.text.length).toBeGreaterThanOrEqual(5);
+  });
+
   it('marks the saved row as not partial on clean completion (sanity)', async () => {
     await writeCorpus('paulg');
     const conv = getOrCreateSolo('paulg');

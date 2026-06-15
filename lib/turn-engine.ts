@@ -46,6 +46,14 @@ import { classifyRisk, riskSystemAddendumFor } from './risk-classifier';
 const TOP_K = Number(process.env.RETRIEVE_TOP_K ?? '20');
 const GATE_ENABLED = process.env.ROUNDTABLE_GATE !== 'false';
 const QUERY_CACHE_MAX = 500;
+/**
+ * Optional per-turn output cap. Defaults to 0 = no cap. When set, the
+ * engine short-circuits a runaway generation once the accumulated text
+ * passes this character count, emits an error part, and marks the saved
+ * message as partial. A safety net for "the model got confused and is
+ * looping" or "billing got out of hand on a $0.10 prompt".
+ */
+const MAX_CHARS_PER_TURN = Number(process.env.WWXD_MAX_CHARS_PER_TURN ?? '0');
 
 export type HistoryMessage = {
   role: 'user' | 'assistant';
@@ -334,6 +342,20 @@ function wrapLlmStream(
           }
           accumulated += chunk;
           controller.enqueue({ type: 'text', value: chunk });
+          // Cost guard. Stops a runaway generation rather than silently
+          // letting it finish.
+          if (MAX_CHARS_PER_TURN > 0 && accumulated.length >= MAX_CHARS_PER_TURN) {
+            const message = `output capped at WWXD_MAX_CHARS_PER_TURN=${MAX_CHARS_PER_TURN}`;
+            controller.enqueue({ type: 'error', message, code: 'cost-guard' });
+            emit('persona.errored', {
+              message,
+              code: 'cost-guard',
+              chars: accumulated.length,
+            });
+            saveAssistantText(saveCtx, accumulated, true);
+            controller.close();
+            return;
+          }
         }
         emit('persona.completed', { chars: accumulated.length });
         saveAssistantText(saveCtx, accumulated, false);
