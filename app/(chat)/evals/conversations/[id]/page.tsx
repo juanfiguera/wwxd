@@ -223,8 +223,20 @@ export default async function ConversationTracePage({
   ]);
   const groups = groupEventsByTurn(events, messages);
   const personaByUsername = new Map(personas.map((p) => [p.username, p]));
+  // Fallback for personas that have since been deleted — turn the slug into
+  // a presentable name so the trace still reads cleanly. "marcus-aurelius"
+  // becomes "Marcus Aurelius"; "paulg" stays "paulg" (no separators to split
+  // on, no signal that title-casing would help).
+  const slugToFallbackName = (slug: string): string => {
+    if (!slug.includes('-') && !slug.includes('_')) return slug;
+    return slug
+      .split(/[-_]/)
+      .filter(Boolean)
+      .map((p) => p[0].toUpperCase() + p.slice(1))
+      .join(' ');
+  };
   const displayName = (username: string): string =>
-    personaByUsername.get(username)?.displayName ?? username;
+    personaByUsername.get(username)?.displayName ?? slugToFallbackName(username);
 
   const backUrl =
     conv.kind === 'solo'
