@@ -19,6 +19,7 @@ import {
   classifyRisk,
   riskPreambleFor,
   riskSystemAddendumFor,
+  tierFor,
 } from '../risk-classifier';
 
 beforeEach(() => {
@@ -34,7 +35,13 @@ describe('riskPreambleFor', () => {
   });
 
   it('returns a persona-voice disclaimer for each category', () => {
-    for (const cat of ['medical', 'financial', 'legal', 'safety'] as const) {
+    for (const cat of [
+      'medical',
+      'financial',
+      'legal',
+      'safety',
+      'crisis',
+    ] as const) {
       const text = riskPreambleFor(cat);
       expect(text).toBeTruthy();
       expect(text!.toLowerCase()).toMatch(/\bi['’]?m\b/); // first-person
@@ -53,6 +60,20 @@ describe('riskPreambleFor', () => {
   });
   it('safety disclaimer mentions safety / help', () => {
     expect(riskPreambleFor('safety')!.toLowerCase()).toMatch(/safety|help/);
+  });
+  it('crisis message surfaces a help line (988)', () => {
+    expect(riskPreambleFor('crisis')).toContain('988');
+  });
+});
+
+describe('tierFor', () => {
+  it('maps categories to the right pullback tier', () => {
+    expect(tierFor('financial')).toBe('disclaimer');
+    expect(tierFor('legal')).toBe('disclaimer');
+    expect(tierFor('medical')).toBe('deflect');
+    expect(tierFor('safety')).toBe('deflect');
+    expect(tierFor('crisis')).toBe('crisis');
+    expect(tierFor(null)).toBeNull();
   });
 });
 
@@ -73,6 +94,25 @@ describe('riskSystemAddendumFor', () => {
     const out = riskSystemAddendumFor('safety')!;
     expect(out.toLowerCase()).toMatch(/do not refuse|don't refuse/);
   });
+
+  it('deflect tier tells the persona to withhold actionable specifics', () => {
+    for (const cat of ['medical', 'safety'] as const) {
+      const out = riskSystemAddendumFor(cat)!;
+      expect(out.toLowerCase()).toContain('do not provide actionable specifics');
+      // Still leads with the bold disclaimer, still stays in character.
+      expect(out).toContain(riskPreambleFor(cat)!);
+      expect(out.toLowerCase()).toMatch(/stay in character/);
+    }
+  });
+
+  it('crisis tier replaces the reply and drops character', () => {
+    const out = riskSystemAddendumFor('crisis')!;
+    expect(out.toLowerCase()).toMatch(/do not stay in character/);
+    expect(out.toLowerCase()).toMatch(/reply with only/);
+    expect(out).toContain('988');
+    // No "continue normally" — the persona must not answer the question.
+    expect(out.toLowerCase()).not.toContain('continue normally');
+  });
 });
 
 describe('classifyRisk', () => {
@@ -90,7 +130,13 @@ describe('classifyRisk', () => {
   });
 
   it('maps each category response to the right enum value', async () => {
-    for (const cat of ['medical', 'financial', 'legal', 'safety'] as const) {
+    for (const cat of [
+      'medical',
+      'financial',
+      'legal',
+      'safety',
+      'crisis',
+    ] as const) {
       mockResponse = { text: cat };
       await expect(classifyRisk('actionable question')).resolves.toBe(cat);
     }
