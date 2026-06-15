@@ -33,8 +33,21 @@ type ChatProps = {
 };
 
 export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: ChatProps) {
+  // conversationIdRef is read inside the transport's body function on every
+  // request, so the engine receives the latest id once useChatHistory has
+  // resolved it (which happens after the first SWR fetch). Initial requests
+  // before SWR resolves go without a conversationId — events for those turns
+  // are simply not persisted, same as before this hookup.
+  const conversationIdRef = useRef<string | null>(null);
   const transport = useMemo(
-    () => new DefaultChatTransport({ api: `/api/chat/${username}` }),
+    () =>
+      new DefaultChatTransport({
+        api: `/api/chat/${username}`,
+        body: () => {
+          const id = conversationIdRef.current;
+          return id ? { conversationId: id } : {};
+        },
+      }),
     [username],
   );
   const saveRef = useRef<((m: UIMessage[]) => void) | null>(null);
@@ -44,11 +57,12 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
       saveRef.current?.(finalMessages);
     },
   });
-  const { clear, hasHistory, saveAfterFinish } = useChatHistory({
+  const { clear, hasHistory, saveAfterFinish, conversationId } = useChatHistory({
     username,
     messages,
     setMessages,
   });
+  conversationIdRef.current = conversationId;
   saveRef.current = saveAfterFinish;
   const [input, setInput] = useState('');
   const { ref: scrollRef, pinned, scrollToBottom, ping } = useStickyScroll<HTMLDivElement>();

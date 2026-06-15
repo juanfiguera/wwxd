@@ -68,8 +68,12 @@ function groupEventsByTurn(
     triggerOrdinal: number;
     userMessage: StoredMessage | null;
   } {
-    // Walk back from `ordinal` to find the nearest user message.
-    const upper = Math.min(ordinal, messages.length - 1);
+    // ev.ordinal is the 1-indexed position of the assistant message being
+    // produced for this event. Walk back from ONE BEFORE that position so
+    // the new assistant itself doesn't shadow the user that triggered it
+    // (which would happen if we started at ordinal and the trace renders
+    // after a later turn appended more rows).
+    const upper = Math.min(ordinal - 1, messages.length - 1);
     for (let i = upper; i >= 0; i -= 1) {
       const m = messages[i];
       if (m && m.role === 'user') {

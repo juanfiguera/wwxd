@@ -52,6 +52,7 @@ export function useChatHistory({
   clear: () => void;
   hasHistory: boolean;
   saveAfterFinish: (finalMessages: UIMessage[]) => void;
+  conversationId: string | null;
 } {
   const router = useRouter();
   const key = soloKey(username);
@@ -111,5 +112,10 @@ export function useChatHistory({
       .catch(() => {});
   }, [data, setMessages, mutate, router]);
 
-  return { clear, hasHistory: messages.length > 0, saveAfterFinish };
+  return {
+    clear,
+    hasHistory: messages.length > 0,
+    saveAfterFinish,
+    conversationId: data?.conversation.id ?? null,
+  };
 }

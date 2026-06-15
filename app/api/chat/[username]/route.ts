@@ -16,7 +16,8 @@ export async function POST(
   { params }: { params: Promise<{ username: string }> },
 ): Promise<Response> {
   const { username } = await params;
-  const { messages }: { messages: UIMessage[] } = await req.json();
+  const body: { messages: UIMessage[]; conversationId?: string } = await req.json();
+  const { messages, conversationId } = body;
 
   // Convert UIMessage[] → engine's HistoryMessage[]. The engine doesn't need
   // multimodal parts; flatten text parts and drop the rest.
@@ -24,6 +25,8 @@ export async function POST(
     role: m.role as 'user' | 'assistant',
     text: m.parts.map((p) => (p.type === 'text' ? p.text : '')).join(''),
   }));
+  // Ordinal = position of the assistant message about to be produced.
+  const ordinal = history.length + 1;
 
   let prep;
   try {
@@ -32,6 +35,8 @@ export async function POST(
       speakers: [{ username, displayName: username }],
       history,
       mode: 'solo',
+      conversationId,
+      ordinal,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -53,15 +58,19 @@ export async function POST(
     system: systemPrompt,
     messages: built,
     providerOptions: cacheableProviderOptions(),
+    // onFinish gives us the final assembled text so persona.completed can
+    // carry the same `chars` payload as the roundtable path.
+    onFinish: ({ text }) => emit('persona.completed', { chars: text.length }),
+    onError: ({ error }) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      emit('persona.errored', { message: msg, code: 'upstream' });
+    },
   });
 
   return result.toUIMessageStreamResponse({
     messageMetadata: ({ part }) => {
       if (part.type === 'start') {
         return { retrievedTweets: retrievedMeta };
-      }
-      if (part.type === 'finish') {
-        emit('persona.completed', {});
       }
     },
   });
