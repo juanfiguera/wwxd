@@ -6,7 +6,7 @@
   <a href="./LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
   <a href="https://nextjs.org"><img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
   <a href="https://react.dev"><img alt="React 19" src="https://img.shields.io/badge/React-19-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
-  <a href="#tests--evals"><img alt="498 tests passing" src="https://img.shields.io/badge/tests-498_passing-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
+  <a href="#tests--evals"><img alt="582 tests passing" src="https://img.shields.io/badge/tests-582_passing-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
   <a href="#contributing"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-16140d?style=for-the-badge&labelColor=f6f4ed&color=f6f4ed" /></a>
 </p>
 
@@ -114,13 +114,13 @@ Get keys: [Anthropic](https://console.anthropic.com/settings/keys) · [OpenAI](h
 
 ## How the roundtable works
 
-Each turn, wwxd loops the personas in order:
+Each turn:
 
-1. **Gate** — a cheap call (your `GATE_MODEL`) asks "given the conversation so far, do you actually have something to add?" YES / NO with a reason. First speaker skips this.
-2. **Speak** — if YES, retrieve their chunks (grounded) or go from memory (prior-only) and stream. The prompt includes every prior speaker so they can agree, push back, or build on each other by name.
-3. **Pass** — if NO, surface a `(passed)` chip with the reason. No charge for a quiet turn.
+1. **Gates fire in parallel.** A cheap call (`GATE_MODEL`) asks every non-first persona "given the conversation so far, do you actually have something to add?" All of them run concurrently via `/api/roundtable/gates`, so the gate phase takes one call's latency, not N. First speaker bypasses the gate and always speaks.
+2. **Speak sequentially.** For each persona the gate cleared, retrieve their chunks (grounded) or go from memory (prior-only) and stream via Server-Sent Events. The prompt includes every prior speaker so they can agree, push back, or build on each other by name. Persona replies persist server-side as they stream — close the tab mid-roundtable and the partial reply is preserved.
+3. **Pass.** If the gate said NO, surface a `(passed)` chip with the reason. No streamText call fires for that persona.
 
-Code: `lib/gate.ts` and `app/api/roundtable/route.ts`.
+Code: `lib/turn-engine.ts`, `lib/gate.ts`, `app/api/roundtable/gates/route.ts`, and `app/api/roundtable/route.ts`.
 
 ## What it costs
 
@@ -168,27 +168,66 @@ pnpm embed-tweets paulg
 <summary><strong>What's actually happening inside</strong></summary>
 
 ```
+data flow
+─────────
 scripts/fetch-tweets.ts     →  data/<slug>.json                  corpus
 scripts/fetch-essays.ts     →  appends to data/<slug>.json
 scripts/fetch-youtube.ts    →  appends to data/<slug>.json
 scripts/embed-tweets.ts     →  data/<slug>.embeddings.json       vectors
+data/wwxd.db                   conversations, messages, events, groups
+data/wwxd-evals.db             eval runs (separated from chat data)
 
+ingestion + persona
+───────────────────
 lib/persona.ts         builds the system prompt.
                         Grounded → voice signature + citation rules.
                         Prior-only → "use what you know, no citations."
 
-lib/retrieve.ts        per-query: embed the user message, run BM25 in
-                        parallel, fuse with RRF, return top-K. Skipped
-                        entirely for prior-only personas.
+lib/persona-cache.ts   caches corpus + BM25 index per persona, mtime-
+                        invalidated. One source of truth for both routes.
 
 lib/disambiguate.ts    takes a typed name, returns canonical figure + bio.
                         Aggressive about spell-correction:
                         "Marqus Aurelius" → "Marcus Aurelius"
                         "Elon Mosk"       → "Elon Musk"
 
-app/api/chat/[username]/route.ts:
-  Load corpus, branch on mode. Grounded retrieves and injects sources
-  with [src:ID] markers. Prior-only just emits the prompt and streams.
+retrieval + engine
+──────────────────
+lib/retrieve.ts        per-query: embed the user message, run BM25 in
+                        parallel, fuse with RRF, return top-K. Query
+                        embeddings are LRU-cached so a 6-persona round-
+                        table on the same prompt embeds once.
+
+lib/turn-engine.ts     the per-persona orchestration. prepareTurn() does
+                        corpus + retrieval + risk + prompt build; runTurn()
+                        adds the streaming wrapper; runGate() runs the
+                        gate decision in isolation for parallel calls.
+                        Same engine serves solo (/api/chat/[username]),
+                        roundtable (/api/roundtable), and the parallel
+                        gate endpoint (/api/roundtable/gates).
+
+lib/db.ts              SQLite layer for conversations, messages (with
+                        is_partial flag), participants, groups, and the
+                        structured conversation_events log.
+
+wire format
+───────────
+/api/roundtable        Server-Sent Events: meta, text, gate-passed,
+                        error, done. JSON-encoded payloads so newlines
+                        inside text chunks never collide with framing.
+
+/api/chat/[username]   AI SDK UIMessage stream (via toUIMessageStreamResponse).
+                        useChat on the client handles the protocol.
+
+debugging
+─────────
+/evals/conversations         every conversation, ranked by trace data
+/evals/conversations/<id>    per-turn timeline of gate decisions, retrieval
+                             hits, errors, completion chars
+/evals/aggregates            health summary + per-persona scorecard +
+                             14-day timeline + heaviest conversations +
+                             retrieval hit-rate
+/evals/personas/<username>   one persona's complete track record
 ```
 </details>
 
@@ -196,7 +235,7 @@ app/api/chat/[username]/route.ts:
 <summary><strong>Tests + evals</strong></summary>
 
 ```bash
-pnpm test                       # 498 unit tests
+pnpm test                       # 582 unit tests
 pnpm eval-persona paulg         # voice match score via LLM judge
 pnpm eval-discriminate paulg    # blind A/B: can a judge tell wwxd from real?
 ```
