@@ -109,21 +109,29 @@ export default async function ConversationsIndexPage() {
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-[var(--paper-2)]">
       <div className="mx-auto w-full max-w-3xl px-4 py-10 md:px-6">
-        <header className="mb-8">
+        <header className="mb-8 flex items-baseline justify-between gap-4">
+          <div>
+            <Link
+              href="/evals"
+              className="text-xs text-[var(--ink-soft)] underline-offset-2 hover:text-[var(--ink)] hover:underline"
+            >
+              ← evals
+            </Link>
+            <h1 className="mt-1 font-display text-2xl font-extrabold tracking-tight text-[var(--ink)]">
+              Conversation traces
+            </h1>
+            <p className="mt-0.5 text-sm text-[var(--ink-soft)]">
+              Every gate decision, retrieval hit, risk classification, and
+              error from every roundtable turn. Open one to see why a persona
+              did what they did.
+            </p>
+          </div>
           <Link
-            href="/evals"
-            className="text-xs text-[var(--ink-soft)] underline-offset-2 hover:text-[var(--ink)] hover:underline"
+            href="/evals/aggregates"
+            className="shrink-0 rounded-full border border-[var(--line)] bg-white px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] transition hover:border-[var(--ink)] hover:text-[var(--ink)]"
           >
-            ← evals
+            Aggregates →
           </Link>
-          <h1 className="mt-1 font-display text-2xl font-extrabold tracking-tight text-[var(--ink)]">
-            Conversation traces
-          </h1>
-          <p className="mt-0.5 text-sm text-[var(--ink-soft)]">
-            Every gate decision, retrieval hit, risk classification, and error
-            from every roundtable turn. Open one to see why a persona did what
-            they did.
-          </p>
         </header>
 
         {conversations.length === 0 ? (
