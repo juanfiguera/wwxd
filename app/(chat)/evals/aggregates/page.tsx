@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import type { CSSProperties } from 'react';
 import { getDb } from '@/lib/db';
 import { loadCorpus } from '@/lib/persona';
 import { personaStyle } from '@/lib/persona-styling';
@@ -376,36 +377,55 @@ export default async function AggregatesPage() {
                           : passRate >= 0.25
                           ? '#a16207'
                           : 'var(--ink-soft)';
+                      const personaHref = `/evals/personas/${encodeURIComponent(r.username)}`;
+                      const linkStyle: CSSProperties = {
+                        display: 'block',
+                        textDecoration: 'none',
+                        color: 'inherit',
+                      };
                       return (
                         <tr
                           key={r.username}
-                          className="border-b border-[var(--line)] last:border-b-0"
+                          className="border-b border-[var(--line)] last:border-b-0 transition hover:bg-[var(--paper-2)]"
                         >
                           <td className="px-3 py-2">
-                            <div
-                              className="font-display text-sm font-bold"
-                              style={{ color }}
-                            >
-                              {r.displayName}
-                            </div>
-                            <div className="text-[10.5px] text-[var(--ink-soft)]">
-                              {r.isKnown ? r.mode : 'deleted'}
-                            </div>
+                            <Link href={personaHref} style={linkStyle}>
+                              <div
+                                className="font-display text-sm font-bold hover:underline"
+                                style={{ color }}
+                              >
+                                {r.displayName}
+                              </div>
+                              <div className="text-[10.5px] text-[var(--ink-soft)]">
+                                {r.isKnown ? r.mode : 'deleted'}
+                              </div>
+                            </Link>
                           </td>
                           <td className="px-3 py-2 text-right font-mono text-sm">
-                            {r.spoke}
+                            <Link href={personaHref} style={linkStyle}>
+                              {r.spoke}
+                            </Link>
                           </td>
                           <td className="px-3 py-2 text-right font-mono text-sm">
-                            {r.passed}
+                            <Link href={personaHref} style={linkStyle}>
+                              {r.passed}
+                            </Link>
                           </td>
                           <td
                             className="px-3 py-2 text-right font-mono text-sm"
                             style={{ color: passRateTone }}
                           >
-                            {total === 0 ? '–' : pct(passRate)}
+                            <Link
+                              href={personaHref}
+                              style={{ ...linkStyle, color: passRateTone }}
+                            >
+                              {total === 0 ? '–' : pct(passRate)}
+                            </Link>
                           </td>
                           <td className="px-3 py-2 text-right font-mono text-sm">
-                            {r.spoke === 0 ? '–' : numberWithSep(avgChars)}
+                            <Link href={personaHref} style={linkStyle}>
+                              {r.spoke === 0 ? '–' : numberWithSep(avgChars)}
+                            </Link>
                           </td>
                           <td
                             className="px-3 py-2 text-right font-mono text-sm"
@@ -413,7 +433,15 @@ export default async function AggregatesPage() {
                               color: r.errors > 0 ? '#b91c1c' : 'var(--ink-soft)',
                             }}
                           >
-                            {r.errors}
+                            <Link
+                              href={personaHref}
+                              style={{
+                                ...linkStyle,
+                                color: r.errors > 0 ? '#b91c1c' : 'var(--ink-soft)',
+                              }}
+                            >
+                              {r.errors}
+                            </Link>
                           </td>
                         </tr>
                       );
