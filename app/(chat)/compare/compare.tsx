@@ -8,6 +8,7 @@ import { fetchJson } from '@/app/components/fetch-utils';
 import { ImpressionCard } from '@/app/components/impression-card';
 import { PersonaAvatar } from '@/app/components/persona-avatar';
 import { personaStyle, tintHex } from '@/lib/persona-styling';
+import { ParticipantsBar } from './participants-bar';
 import { PersonaColumn, type Submission } from './persona-column';
 import { RoundtableView } from './roundtable';
 
@@ -63,9 +64,7 @@ export function Compare({
 
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [input, setInput] = useState('');
-  const [pickerOpen, setPickerOpen] = useState(selected.length === 0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const pickerRef = useRef<HTMLDivElement>(null);
 
   // Group naming
   const [nameEditing, setNameEditing] = useState(false);
@@ -110,25 +109,6 @@ export function Compare({
     setNameInput('');
   }
 
-  // Close the persona picker on outside click or Escape.
-  useEffect(() => {
-    if (!pickerOpen) return;
-    function onPointerDown(e: MouseEvent) {
-      const el = pickerRef.current;
-      if (el && !el.contains(e.target as Node)) {
-        setPickerOpen(false);
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setPickerOpen(false);
-    }
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [pickerOpen]);
 
   const writeUrl = useCallback(
     (usernames: string[], nextMode: Mode, opts?: { conversationId?: string | null }) => {
@@ -233,7 +213,6 @@ export function Compare({
       }
     }
     writeUrl([...selectedUsernames, username], mode);
-    setPickerOpen(false);
   }
 
   async function remove(username: string) {
@@ -397,87 +376,12 @@ export function Compare({
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center gap-2 px-6 py-3">
-        {selected.map((p) => {
-          const s = personaStyle(p.username);
-          const isPriorOnly = p.mode === 'prior-only';
-          return (
-            <span
-              key={p.username}
-              className="inline-flex items-center gap-1.5 rounded-full bg-white px-2 py-1 font-display text-xs font-bold text-[var(--ink)] shadow-[var(--shadow-sm)]"
-              // Dashed border on prior-only chips telegraphs "lighter weight,
-              // no curated corpus" at a glance, even before the user reads
-              // the displayName or the impression-card disclaimer.
-              style={{ border: `1.5px ${isPriorOnly ? 'dashed' : 'solid'} ${s.color}` }}
-              title={
-                isPriorOnly
-                  ? `${p.displayName} — no curated sources. Replies come from the model's memory.`
-                  : undefined
-              }
-            >
-              <span
-                className="flex h-5 w-5 items-end justify-center overflow-hidden rounded-full"
-                style={{ background: tintHex(s.color, 0.16) }}
-              >
-                <PersonaAvatar color={s.color} crown={s.crown} size={18} eyeColor="#fff" />
-              </span>
-              {p.displayName}
-              {!isPriorOnly && <CitedBadge size="xs" tone={s.color} />}
-              <button
-                onClick={() => remove(p.username)}
-                className="opacity-60 hover:opacity-100"
-                aria-label={`Remove ${p.displayName}`}
-              >
-                ✕
-              </button>
-            </span>
-          );
-        })}
-        {available.length > 0 && (
-          <div className="relative" ref={pickerRef}>
-            <button
-              onClick={() => setPickerOpen((v) => !v)}
-              className="rounded-full border border-dashed border-[var(--ink-faint)] bg-white px-3 py-1 font-display text-xs font-bold text-[var(--ink-soft)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
-            >
-              + add persona
-            </button>
-            {pickerOpen && (
-              <div className="absolute left-0 top-full z-10 mt-1 w-64 overflow-hidden rounded-[var(--r)] border border-[var(--line)] bg-white shadow-[var(--shadow)]">
-                {available.map((p) => {
-                  const s = personaStyle(p.username);
-                  return (
-                    <button
-                      key={p.username}
-                      onClick={() => add(p.username)}
-                      className="flex w-full items-center gap-3 px-3 py-2 text-left transition hover:bg-[var(--paper-2)]"
-                    >
-                      <span
-                        className="flex h-7 w-7 shrink-0 items-end justify-center overflow-hidden rounded-full"
-                        style={{ background: tintHex(s.color, 0.16) }}
-                      >
-                        <PersonaAvatar
-                          color={s.color}
-                          crown={s.crown}
-                          size={24}
-                          eyeColor="#fff"
-                        />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-display text-xs font-bold text-[var(--ink)]">
-                          {p.displayName}
-                        </div>
-                        <div className="truncate text-[10px] text-[var(--ink-soft)]">
-                          @{p.username} · {p.tweetCount.toLocaleString()} tweets
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      <ParticipantsBar
+        selected={selected}
+        available={available}
+        onAdd={add}
+        onRemove={remove}
+      />
 
       <div className="flex min-h-0 flex-1 flex-col px-6 pb-2">
         {selected.length === 0 ? (
