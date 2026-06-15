@@ -27,12 +27,25 @@ const Body = z.object({
 /**
  * Roundtable endpoint. Thin shell over `runTurn` from lib/turn-engine.ts.
  *
- * Wire format (preserved for client compatibility):
- *   - Gate said NO → JSON  `{ passed: true, reason, speaker }`
- *   - Otherwise → streamed text, with `__WWXD_STREAM_ERROR__<message>` as a
- *     sentinel on upstream provider errors. Phase 2 of the refactor plan
- *     replaces the sentinel with a proper SSE protocol.
- *   - X-Retrieved-Tweets header on both.
+ * Wire format: Server-Sent Events on a single `text/event-stream` body.
+ *
+ *   event: meta
+ *   data: {"retrievedTweets": [...]}
+ *
+ *   event: text
+ *   data: {"value": "chunk"}
+ *
+ *   event: gate-passed
+ *   data: {"reason": "..."}
+ *
+ *   event: error
+ *   data: {"message": "...", "code": "upstream"}
+ *
+ *   event: done
+ *
+ * Every payload is JSON-encoded so newlines inside text chunks never
+ * collide with SSE's line framing. Phase 2.1 replaces the old
+ * `__WWXD_STREAM_ERROR__` sentinel that used to live in the text stream.
  */
 export async function POST(req: Request): Promise<Response> {
   const raw = await req.json().catch(() => null);
@@ -64,52 +77,36 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  const retrievedHeader = encodeURIComponent(JSON.stringify(turn.retrievedMeta));
-  const reader = turn.stream.getReader();
-  const first = await reader.read();
-
-  // Empty stream: shouldn't happen for a real run; respond with no body.
-  if (first.done) {
-    reader.releaseLock();
-    return new Response('', {
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'X-Retrieved-Tweets': retrievedHeader,
-      },
-    });
-  }
-
-  // Gate said NO: single-shot JSON, no streaming body.
-  if (first.value?.type === 'gate-passed') {
-    reader.releaseLock();
-    return Response.json(
-      { passed: true, reason: first.value.reason, speaker },
-      {
-        status: 200,
-        headers: { 'X-Retrieved-Tweets': retrievedHeader },
-      },
-    );
-  }
-
-  // Text (or error) path: stream the parts as plain text with the legacy
-  // sentinel on errors. The first part is already in hand, so include it.
   const encoder = new TextEncoder();
-  const stream = new ReadableStream({
+  function sse(event: string, data: unknown): Uint8Array {
+    const payload = data === undefined ? '' : `data: ${JSON.stringify(data)}\n`;
+    return encoder.encode(`event: ${event}\n${payload}\n`);
+  }
+
+  const reader = turn.stream.getReader();
+  const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      function emit(part: TurnStreamPart): void {
-        if (part.type === 'text') {
-          controller.enqueue(encoder.encode(part.value));
-        } else if (part.type === 'error') {
-          controller.enqueue(encoder.encode(`__WWXD_STREAM_ERROR__${part.message}`));
-        }
-      }
-      if (first.value) emit(first.value);
       try {
-        while (true) {
-          const next = await reader.read();
-          if (next.done) break;
-          if (next.value) emit(next.value);
+        // Always emit the meta event first so the client has the
+        // retrieval metadata before any text starts flowing.
+        controller.enqueue(sse('meta', { retrievedTweets: turn.retrievedMeta }));
+        function emit(part: TurnStreamPart): void {
+          if (part.type === 'text') {
+            controller.enqueue(sse('text', { value: part.value }));
+          } else if (part.type === 'gate-passed') {
+            controller.enqueue(sse('gate-passed', { reason: part.reason }));
+          } else if (part.type === 'error') {
+            controller.enqueue(
+              sse('error', { message: part.message, code: part.code ?? 'upstream' }),
+            );
+          }
         }
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) emit(value);
+        }
+        controller.enqueue(sse('done', undefined));
       } finally {
         controller.close();
         reader.releaseLock();
@@ -119,8 +116,9 @@ export async function POST(req: Request): Promise<Response> {
 
   return new Response(stream, {
     headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'X-Retrieved-Tweets': retrievedHeader,
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no',
     },
   });
 }

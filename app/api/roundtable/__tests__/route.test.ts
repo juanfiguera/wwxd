@@ -121,7 +121,7 @@ describe('POST /api/roundtable', () => {
     expect(generateTextMock).toHaveBeenCalledTimes(1);
   });
 
-  it('runs the gate for non-first speakers and returns JSON "passed" when gate says NO', async () => {
+  it('emits a gate-passed SSE event for non-first speakers when gate says NO', async () => {
     await writeCorpus('paulg', 3);
     await writeCorpus('sama', 3);
     // Non-first speakers SKIP risk classification, so the only generateText
@@ -147,9 +147,12 @@ describe('POST /api/roundtable', () => {
       }),
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { passed: boolean; speaker: string };
-    expect(body.passed).toBe(true);
-    expect(body.speaker).toBe('sama');
+    expect(res.headers.get('Content-Type')).toContain('text/event-stream');
+    const text = await res.text();
+    // Should contain a gate-passed event before the done marker, and no text events.
+    expect(text).toMatch(/event: gate-passed\ndata: \{"reason":/);
+    expect(text).toMatch(/event: done/);
+    expect(text).not.toMatch(/event: text/);
     expect(streamTextMock).not.toHaveBeenCalled();
   });
 

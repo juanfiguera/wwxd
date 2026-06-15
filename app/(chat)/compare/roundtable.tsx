@@ -9,6 +9,7 @@ import { AIBadge } from '@/app/components/ai-badge';
 import { ImpressionCard } from '@/app/components/impression-card';
 import { PersonaAvatar } from '@/app/components/persona-avatar';
 import { ShareButton } from '@/app/components/share-button';
+import { readSse } from '@/app/components/sse-reader';
 import { useStickyScroll } from '@/app/components/use-sticky-scroll';
 import {
   conversationFetcher,
@@ -227,58 +228,6 @@ export function RoundtableView({
             setMessages([...working]);
             continue;
           }
-
-          // Parse retrieved tweets from response header (if present)
-          let retrieved: RetrievedTweetMeta[] = [];
-          const headerVal = res.headers.get('X-Retrieved-Tweets');
-          if (headerVal) {
-            try {
-              retrieved = JSON.parse(decodeURIComponent(headerVal)) as RetrievedTweetMeta[];
-            } catch {
-              // ignore malformed header
-            }
-          }
-
-          // The route returns one of two shapes:
-          //   - JSON: { passed: true, reason } when the gate decided to skip
-          //   - text stream: when the persona actually responds
-          // Branch up-front so we never try to read the body twice.
-          const contentType = res.headers.get('Content-Type') ?? '';
-          const isJsonBody = contentType.includes('application/json');
-
-          if (isJsonBody) {
-            const body = await res
-              .json()
-              .catch(() => null as { passed?: boolean; reason?: string } | null);
-            if (body && body.passed) {
-              working = working.map((m) =>
-                m.id === placeholder.id
-                  ? {
-                      ...m,
-                      passed: true,
-                      passReason: body.reason ?? 'no comment',
-                      retrievedTweets: retrieved,
-                    }
-                  : m,
-              );
-            } else {
-              // Unexpected JSON shape — surface it instead of silently dropping
-              working = working.map((m) =>
-                m.id === placeholder.id
-                  ? {
-                      ...m,
-                      passed: true,
-                      passReason: '(unexpected empty response)',
-                      retrievedTweets: retrieved,
-                    }
-                  : m,
-              );
-            }
-            setMessages([...working]);
-            continue;
-          }
-
-          // Text stream path
           if (!res.body) {
             working = working.map((m) =>
               m.id === placeholder.id
@@ -289,43 +238,70 @@ export function RoundtableView({
             continue;
           }
 
-          working = working.map((m) =>
-            m.id === placeholder.id ? { ...m, retrievedTweets: retrieved } : m,
-          );
-          setMessages([...working]);
-
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
+          // Phase 2.1 wire format: text/event-stream with typed events.
+          //   meta → retrieved tweets metadata
+          //   text → accumulated reply chunk
+          //   gate-passed → persona declined, reason in payload
+          //   error → upstream provider error (replaces the old sentinel)
+          //   done → server is closing the stream
           let acc = '';
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            acc += decoder.decode(value, { stream: true });
-            working = working.map((m) => (m.id === placeholder.id ? { ...m, text: acc } : m));
-            setMessages([...working]);
+          let retrieved: RetrievedTweetMeta[] = [];
+          let passReason: string | null = null;
+          let errorReason: string | null = null;
+          for await (const ev of readSse(res.body)) {
+            if (ev.event === 'meta') {
+              const data = ev.data as { retrievedTweets?: RetrievedTweetMeta[] };
+              retrieved = data.retrievedTweets ?? [];
+              working = working.map((m) =>
+                m.id === placeholder.id ? { ...m, retrievedTweets: retrieved } : m,
+              );
+              setMessages([...working]);
+            } else if (ev.event === 'text') {
+              const data = ev.data as { value: string };
+              acc += data.value;
+              working = working.map((m) =>
+                m.id === placeholder.id ? { ...m, text: acc } : m,
+              );
+              setMessages([...working]);
+            } else if (ev.event === 'gate-passed') {
+              const data = ev.data as { reason: string };
+              passReason = data.reason ?? 'no comment';
+            } else if (ev.event === 'error') {
+              const data = ev.data as { message: string };
+              errorReason = data.message ?? '';
+            } else if (ev.event === 'done') {
+              break;
+            }
           }
-          // The server prefixes upstream provider errors (rate limit,
-          // billing, etc.) with this sentinel so we can render the real
-          // reason instead of "(model returned empty response)" or worse,
-          // displaying the error as if the persona had said it.
-          const ERROR_SENTINEL = '__WWXD_STREAM_ERROR__';
-          if (acc.includes(ERROR_SENTINEL)) {
-            const errMsg = acc.split(ERROR_SENTINEL).pop()?.trim() ?? '';
+          if (passReason !== null) {
+            working = working.map((m) =>
+              m.id === placeholder.id
+                ? {
+                    ...m,
+                    passed: true,
+                    passReason,
+                    retrievedTweets: retrieved,
+                  }
+                : m,
+            );
+            setMessages([...working]);
+          } else if (errorReason !== null) {
             working = working.map((m) =>
               m.id === placeholder.id
                 ? {
                     ...m,
                     text: '',
                     passed: true,
-                    passReason: errMsg
-                      ? `(${errMsg})`
+                    passReason: errorReason
+                      ? `(${errorReason})`
                       : '(provider error)',
                   }
                 : m,
             );
             setMessages([...working]);
           } else if (!acc.trim()) {
-            // Don't silently vanish — show that the model returned nothing
+            // Stream closed without text, gate-passed, or error — surface it
+            // instead of silently vanishing.
             working = working.map((m) =>
               m.id === placeholder.id
                 ? { ...m, passed: true, passReason: '(model returned empty response)' }
