@@ -647,9 +647,7 @@ describe('runTurn — Phase 2.2 partial persistence', () => {
     vi.resetModules();
     const reimported = await import('../turn-engine');
     mockStreamText.mockReturnValue({
-      textStream: reimported.runTurn
-        ? fakeTextStream(['1234', '5678', '9012'])
-        : fakeTextStream(['1234', '5678', '9012']),
+      textStream: fakeTextStream(['1234', '5678', '9012']),
     });
     const result = await reimported.runTurn({
       speaker: 'paulg',

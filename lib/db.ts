@@ -725,7 +725,133 @@ export function loadEvents(
   }));
 }
 
-// ─── Evals (unchanged) ─────────────────────────────────────────────────────
+// ─── Evals (Phase 4.3: separate DB file) ──────────────────────────────────
+//
+// Eval runs live in `data/wwxd-evals.db` so the cadence of voice-match and
+// discrimination eval runs doesn't bloat the main conversation database
+// (and so backups can target them independently). One-time migration on
+// first eval-DB open copies any pre-Phase-4.3 rows from the main DB.
+
+let evalDbInstance: Database.Database | null = null;
+let evalDbInstancePath: string | null = null;
+
+function evalDbPath(): string {
+  if (process.env.WWXD_EVAL_DB_PATH) return process.env.WWXD_EVAL_DB_PATH;
+  return resolve(process.cwd(), 'data', 'wwxd-evals.db');
+}
+
+function initEvalSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS eval_runs (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      ran_at TEXT NOT NULL,
+      summary_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS eval_results (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      username TEXT,
+      result_json TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      FOREIGN KEY(run_id) REFERENCES eval_runs(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_eval_runs_kind_ranat ON eval_runs(kind, ran_at);
+    CREATE INDEX IF NOT EXISTS idx_eval_results_run ON eval_results(run_id, ordinal);
+  `);
+}
+
+/**
+ * Open or return the cached eval-DB connection. Runs the one-time copy from
+ * the main DB if the eval DB is empty and the main DB has rows.
+ */
+function getEvalDb(): Database.Database {
+  const path = evalDbPath();
+  if (evalDbInstance && evalDbInstancePath === path) return evalDbInstance;
+  if (evalDbInstance) {
+    try {
+      evalDbInstance.close();
+    } catch {
+      /* fine */
+    }
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  const db = new Database(path);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  initEvalSchema(db);
+  migrateEvalsFromMainDb(db);
+  evalDbInstance = db;
+  evalDbInstancePath = path;
+  return db;
+}
+
+/**
+ * One-time copy from the main DB into the new eval DB. Idempotent: if the
+ * eval DB already has rows OR the main DB has no eval tables, no-op.
+ */
+function migrateEvalsFromMainDb(evalDb: Database.Database): void {
+  const evalCount = evalDb
+    .prepare(`SELECT COUNT(*) AS n FROM eval_runs`)
+    .get() as { n: number };
+  if (evalCount.n > 0) return;
+
+  const mainDb = getDb();
+  const mainHasTables =
+    mainDb
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'eval_runs'`,
+      )
+      .get() !== undefined;
+  if (!mainHasTables) return;
+
+  const mainRuns = mainDb
+    .prepare(`SELECT id, kind, ran_at, summary_json FROM eval_runs`)
+    .all() as Array<{
+    id: string;
+    kind: string;
+    ran_at: string;
+    summary_json: string;
+  }>;
+  if (mainRuns.length === 0) return;
+  const mainResults = mainDb
+    .prepare(
+      `SELECT id, run_id, username, result_json, ordinal FROM eval_results`,
+    )
+    .all() as Array<{
+    id: string;
+    run_id: string;
+    username: string | null;
+    result_json: string;
+    ordinal: number;
+  }>;
+
+  const tx = evalDb.transaction(() => {
+    const insertRun = evalDb.prepare(
+      `INSERT INTO eval_runs(id, kind, ran_at, summary_json) VALUES (?, ?, ?, ?)`,
+    );
+    for (const r of mainRuns) insertRun.run(r.id, r.kind, r.ran_at, r.summary_json);
+    const insertResult = evalDb.prepare(
+      `INSERT INTO eval_results(id, run_id, username, result_json, ordinal) VALUES (?, ?, ?, ?, ?)`,
+    );
+    for (const r of mainResults)
+      insertResult.run(r.id, r.run_id, r.username, r.result_json, r.ordinal);
+  });
+  tx();
+}
+
+/** Test helper: reset the cached eval-DB connection. */
+export function __resetEvalDb(): void {
+  if (evalDbInstance) {
+    try {
+      evalDbInstance.close();
+    } catch {
+      /* fine */
+    }
+  }
+  evalDbInstance = null;
+  evalDbInstancePath = null;
+}
 
 export type EvalRunKind = 'voice' | 'discrimination';
 
@@ -748,7 +874,7 @@ export function saveEvalRun(
   summary: unknown,
   results: { username: string | null; result: unknown }[],
 ): string {
-  const db = getDb();
+  const db = getEvalDb();
   const runId = randomUUID();
   const now = new Date().toISOString();
   const tx = db.transaction(() => {
@@ -767,7 +893,7 @@ export function saveEvalRun(
 }
 
 export function listEvalRuns(kind?: EvalRunKind, limit = 50): EvalRun[] {
-  const db = getDb();
+  const db = getEvalDb();
   const rows = kind
     ? (db
         .prepare(
@@ -802,7 +928,7 @@ export function listEvalRuns(kind?: EvalRunKind, limit = 50): EvalRun[] {
 export function getEvalRun(
   id: string,
 ): { run: EvalRun; results: EvalResult[] } | null {
-  const db = getDb();
+  const db = getEvalDb();
   const runRow = db
     .prepare(`SELECT id, kind, ran_at, summary_json FROM eval_runs WHERE id = ?`)
     .get(id) as
