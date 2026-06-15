@@ -608,6 +608,23 @@ export function appendEvent(input: ConversationEventInput): ConversationEvent {
 }
 
 /**
+ * Count events per conversation across the whole database. Used by the
+ * trace index page to show "N events" alongside each row without firing
+ * one COUNT query per row.
+ */
+export function countEventsByConversation(): Map<string, number> {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT conversation_id AS id, COUNT(*) AS n
+       FROM conversation_events
+       GROUP BY conversation_id`,
+    )
+    .all() as Array<{ id: string; n: number }>;
+  return new Map(rows.map((r) => [r.id, r.n]));
+}
+
+/**
  * Load events for a conversation. Ordered by `(ordinal ASC, id ASC)` so the
  * stream reads as a faithful replay. Optionally filtered by kind.
  */

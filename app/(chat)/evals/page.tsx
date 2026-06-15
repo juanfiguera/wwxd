@@ -177,6 +177,12 @@ export default async function EvalsPage() {
               How well does each persona actually sound like the real person?
             </p>
           </div>
+          <Link
+            href="/evals/conversations"
+            className="shrink-0 rounded-full border border-[var(--line)] bg-white px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] transition hover:border-[var(--ink)] hover:text-[var(--ink)]"
+          >
+            Conversation traces →
+          </Link>
         </header>
 
         {runs.length === 0 ? (
