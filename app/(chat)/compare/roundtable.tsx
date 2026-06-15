@@ -188,7 +188,45 @@ export function RoundtableView({
 
       const speakerMeta = personas.map((p) => ({ username: p.username, displayName: p.displayName }));
 
-      for (const persona of personas) {
+      // Phase 1.4: run every persona's gate decision in parallel before we
+      // start streaming. The first speaker (and any persona shouldRunGate
+      // would have skipped inline) always returns shouldSpeak=true on the
+      // server side, so the array stays the same length as personas.
+      // If the gates endpoint errors out, fail open: assume every persona
+      // speaks and let the per-persona /api/roundtable call run its own
+      // inline gate as before.
+      let decisions: Array<{ speaker: string; shouldSpeak: boolean; reason: string }> = [];
+      let usePrefetchedGates = false;
+      try {
+        const gatesRes = await fetch('/api/roundtable/gates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            speakers: speakerMeta,
+            history: working.map((m) => ({
+              role: m.role,
+              text: m.text,
+              speaker: m.speaker,
+            })),
+            ...(conversationId ? { conversationId } : {}),
+          }),
+        });
+        if (gatesRes.ok) {
+          const data = (await gatesRes.json()) as {
+            decisions?: typeof decisions;
+          };
+          if (Array.isArray(data.decisions) && data.decisions.length === personas.length) {
+            decisions = data.decisions;
+            usePrefetchedGates = true;
+          }
+        }
+      } catch (err) {
+        console.warn('[roundtable] parallel gate failed, falling back to inline:', err);
+      }
+
+      for (let i = 0; i < personas.length; i += 1) {
+        const persona = personas[i];
+        const decision = usePrefetchedGates ? decisions[i] : null;
         const placeholder: RoundtableMessage = {
           id: uid(),
           role: 'assistant',
@@ -196,6 +234,20 @@ export function RoundtableView({
           speaker: persona.username,
         };
         working = [...working, placeholder];
+
+        // Render the gate-passed result immediately without making a speak
+        // request at all. Saves both an HTTP round-trip and one streamText
+        // call per passing persona.
+        if (decision && !decision.shouldSpeak) {
+          working = working.map((m) =>
+            m.id === placeholder.id
+              ? { ...m, passed: true, passReason: decision.reason || 'no comment' }
+              : m,
+          );
+          setMessages([...working]);
+          continue;
+        }
+
         setMessages([...working]);
         setStreamingFor(persona.username);
 
@@ -212,6 +264,7 @@ export function RoundtableView({
               ...(conversationId
                 ? { conversationId, assistantMessageId: placeholder.id }
                 : {}),
+              ...(usePrefetchedGates ? { skipGate: true } : {}),
             }),
           });
 

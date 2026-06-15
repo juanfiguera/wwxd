@@ -86,6 +86,13 @@ export type TurnRequest = {
    * reload the page and recover what was already streamed.
    */
   assistantMessageId?: string;
+  /**
+   * Phase 1.4: when true, bypass the gate phase. Used by callers that
+   * already pre-decided the gate via `runGate` (typically the parallel
+   * gates endpoint) and just want to stream the reply now. No-op in solo
+   * mode (gate is roundtable-only).
+   */
+  skipGate?: boolean;
 };
 
 export type TurnStreamPart =
@@ -432,7 +439,8 @@ export async function prepareTurn(req: TurnRequest): Promise<PrepareResult> {
     mode === 'roundtable' &&
     GATE_ENABLED &&
     !isFirstSpeakerThisTurn &&
-    shouldRunGate(speakers.length, Boolean(lastUserText))
+    shouldRunGate(speakers.length, Boolean(lastUserText)) &&
+    !req.skipGate
   ) {
     try {
       const gatePrelude = [addendum, retrievalBlock, GATE_INSTRUCTION]
@@ -474,6 +482,107 @@ export async function prepareTurn(req: TurnRequest): Promise<PrepareResult> {
       signal,
     },
   };
+}
+
+// ─── runGate (Phase 1.4) ──────────────────────────────────────────────────
+
+export type GateDecision = {
+  speaker: string;
+  shouldSpeak: boolean;
+  reason: string;
+};
+
+/**
+ * Run JUST the gate decision for a single persona, in isolation. Designed
+ * to be fanned out via Promise.all so a roundtable can resolve all gates in
+ * parallel before sequentially streaming the spoken replies.
+ *
+ * Shares the persona cache, query-embedding cache, and message-building
+ * helpers with prepareTurn so the duplication cost is minor:
+ *   - Corpus load: cached
+ *   - Query embedding: cached
+ *   - BM25 search: cheap, in-memory
+ *
+ * The same conversation_events ('gate.spoke' / 'gate.passed') are emitted
+ * when conversationId + ordinal are provided, so traces look identical
+ * whether the gate ran here or inline in prepareTurn.
+ */
+export async function runGate(req: {
+  speaker: string;
+  speakers: Speaker[];
+  history: HistoryMessage[];
+  /**
+   * Parallel callers know the speak order up-front and must tell us
+   * explicitly which persona is going first this round. We can't infer it
+   * from history alone (no assistants have spoken yet when the parallel
+   * gate runs — they would all look like first speakers).
+   */
+  isFirstSpeaker?: boolean;
+  conversationId?: string;
+  ordinal?: number;
+}): Promise<GateDecision> {
+  const { speaker, speakers, history } = req;
+  const emit = makeEmit({ ...req, mode: 'roundtable' });
+
+  if (req.isFirstSpeaker) {
+    return { speaker, shouldSpeak: true, reason: '' };
+  }
+
+  const bundle: CorpusBundle = await getCorpusBundle(speaker);
+  const { messages: povMessages, lastUserText } = buildPovMessages(
+    history,
+    speakers,
+    speaker,
+  );
+  if (!GATE_ENABLED || !shouldRunGate(speakers.length, Boolean(lastUserText))) {
+    return { speaker, shouldSpeak: true, reason: '' };
+  }
+
+  // Run retrieval so the gate prompt has the same supporting context the
+  // inline path would have given it. Cheap thanks to the embed cache.
+  const embeddings = hasEmbeddingProvider() ? await tryLoadEmbeddings(speaker) : null;
+  let retrievedTweets: Tweet[] = [];
+  if (lastUserText) {
+    try {
+      let queryVec: Float32Array | null = null;
+      if (embeddings) queryVec = await embedQueryCached(lastUserText);
+      const topIds = hybridTopK(embeddings, queryVec, bundle.bm25, lastUserText, TOP_K);
+      retrievedTweets = topIds
+        .map((id) => bundle.tweetById.get(id))
+        .filter((t): t is Tweet => Boolean(t));
+    } catch {
+      /* ignore — gate falls back to voice-only */
+    }
+  }
+
+  const isPriorOnly = bundle.corpus.mode === 'prior-only';
+  const retrievalBlock = isPriorOnly ? '' : buildRetrievalBlock(retrievedTweets);
+  const addendum = buildRoundtableAddendum(speakers, speaker);
+  const gatePrelude = [addendum, retrievalBlock, GATE_INSTRUCTION]
+    .filter(Boolean)
+    .join('\n\n');
+  const gateMessages = injectPreludeIntoLastUserMessage(povMessages, gatePrelude);
+
+  try {
+    const gateResult = await generateText({
+      model: modelFor('gate'),
+      system: bundle.staticPrompt,
+      messages: gateMessages,
+      providerOptions: cacheableProviderOptions(),
+    });
+    const decision = parseGateDecision(gateResult.text);
+    if (decision.speak) {
+      emit('gate.spoke');
+      return { speaker, shouldSpeak: true, reason: '' };
+    }
+    emit('gate.passed', { reason: decision.reason });
+    return { speaker, shouldSpeak: false, reason: decision.reason };
+  } catch (err) {
+    console.error(`[turn-engine] @${speaker} gate failed:`, err);
+    // Fail open: better a noisy persona than a silent one when the gate
+    // model itself errors out.
+    return { speaker, shouldSpeak: true, reason: '' };
+  }
 }
 
 // ─── runTurn ──────────────────────────────────────────────────────────────

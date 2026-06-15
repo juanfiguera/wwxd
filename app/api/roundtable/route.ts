@@ -29,6 +29,12 @@ const Body = z.object({
    * disconnect.
    */
   assistantMessageId: z.string().min(1).optional(),
+  /**
+   * Phase 1.4. When true, bypass the inline gate phase. Set by clients
+   * that already ran the parallel gate via /api/roundtable/gates and just
+   * want to stream the reply.
+   */
+  skipGate: z.boolean().optional(),
 });
 
 /**
@@ -63,8 +69,14 @@ export async function POST(req: Request): Promise<Response> {
       { status: 400 },
     );
   }
-  const { speaker, speakers, history, conversationId, assistantMessageId } =
-    parsed.data;
+  const {
+    speaker,
+    speakers,
+    history,
+    conversationId,
+    assistantMessageId,
+    skipGate,
+  } = parsed.data;
   const ordinal = history.length + 1;
 
   let turn;
@@ -77,6 +89,7 @@ export async function POST(req: Request): Promise<Response> {
       conversationId,
       ordinal,
       assistantMessageId,
+      skipGate,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
