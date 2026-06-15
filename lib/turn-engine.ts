@@ -24,7 +24,7 @@
 
 import { streamText, generateText, type ModelMessage } from 'ai';
 import { stat } from 'node:fs/promises';
-import { appendEvent, type ConversationEventKind } from './db';
+import { appendEvent, upsertMessage, type ConversationEventKind } from './db';
 import {
   GATE_INSTRUCTION,
   parseGateDecision,
@@ -79,6 +79,13 @@ export type TurnRequest = {
    */
   conversationId?: string;
   ordinal?: number;
+  /**
+   * Phase 2.2: when present along with conversationId + ordinal, the engine
+   * writes the assistant message to the DB on stream end (including when
+   * the client disconnected mid-stream — see wrapLlmStream). Lets the user
+   * reload the page and recover what was already streamed.
+   */
+  assistantMessageId?: string;
 };
 
 export type TurnStreamPart =
@@ -265,33 +272,79 @@ function makeEmit(req: TurnRequest): EmitFn {
   };
 }
 
+/**
+ * Phase 2.2 save target. The engine carries these so it can checkpoint the
+ * assistant message to the messages table when the stream ends (success,
+ * abort, OR client disconnect). Missing any field disables saving.
+ */
+type AssistantSaveCtx = {
+  conversationId: string;
+  speaker: string;
+  ordinal: number;
+  assistantMessageId: string;
+  retrievedMeta: RetrievedTweetMeta[];
+};
+
+function saveAssistantText(
+  ctx: AssistantSaveCtx | null,
+  text: string,
+  isPartial: boolean,
+): void {
+  if (!ctx) return;
+  try {
+    upsertMessage(ctx.conversationId, {
+      id: ctx.assistantMessageId,
+      role: 'assistant',
+      speaker: ctx.speaker,
+      text,
+      metadata: ctx.retrievedMeta.length > 0 ? { retrievedTweets: ctx.retrievedMeta } : null,
+      ordinal: ctx.ordinal,
+      isPartial,
+    });
+  } catch (err) {
+    console.error('[turn-engine] upsertMessage failed:', err);
+  }
+}
+
 function wrapLlmStream(
   textStream: AsyncIterable<string>,
   signal: AbortSignal | undefined,
   emit: EmitFn,
+  saveCtx: AssistantSaveCtx | null,
 ): ReadableStream<TurnStreamPart> {
+  let accumulated = '';
   return new ReadableStream<TurnStreamPart>({
     async start(controller) {
-      let chars = 0;
       try {
         for await (const chunk of textStream) {
           if (signal?.aborted) {
             controller.enqueue({ type: 'error', message: 'aborted', code: 'aborted' });
-            emit('persona.errored', { message: 'aborted', code: 'aborted', chars });
+            emit('persona.errored', { message: 'aborted', code: 'aborted', chars: accumulated.length });
+            // Partial save before bailing.
+            saveAssistantText(saveCtx, accumulated, true);
             controller.close();
             return;
           }
-          chars += chunk.length;
+          accumulated += chunk;
           controller.enqueue({ type: 'text', value: chunk });
         }
-        emit('persona.completed', { chars });
+        emit('persona.completed', { chars: accumulated.length });
+        saveAssistantText(saveCtx, accumulated, false);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         controller.enqueue({ type: 'error', message, code: 'upstream' });
-        emit('persona.errored', { message, code: 'upstream', chars });
+        emit('persona.errored', { message, code: 'upstream', chars: accumulated.length });
+        // Whatever we got is worth keeping; mark partial.
+        if (accumulated.length > 0) saveAssistantText(saveCtx, accumulated, true);
       } finally {
         controller.close();
       }
+    },
+    // Fires when the downstream consumer cancels (e.g., user closed the
+    // tab mid-roundtable and the SSE response stream was aborted). We have
+    // whatever text reached us via the textStream loop above. Persist it.
+    cancel() {
+      saveAssistantText(saveCtx, accumulated, true);
     },
   });
 }
@@ -441,8 +494,20 @@ export async function runTurn(req: TurnRequest): Promise<TurnResult> {
     providerOptions: cacheableProviderOptions(),
     abortSignal: signal,
   });
+  const saveCtx: AssistantSaveCtx | null =
+    req.conversationId !== undefined &&
+    req.ordinal !== undefined &&
+    req.assistantMessageId !== undefined
+      ? {
+          conversationId: req.conversationId,
+          speaker: req.speaker,
+          ordinal: req.ordinal,
+          assistantMessageId: req.assistantMessageId,
+          retrievedMeta,
+        }
+      : null;
   return {
-    stream: wrapLlmStream(result.textStream, signal, emit),
+    stream: wrapLlmStream(result.textStream, signal, emit, saveCtx),
     retrievedMeta,
   };
 }

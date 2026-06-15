@@ -22,6 +22,13 @@ const Body = z.object({
    * the assistant message about to be produced (history length + 1).
    */
   conversationId: z.string().min(1).optional(),
+  /**
+   * Phase 2.2. Client-generated id for the placeholder assistant message.
+   * When present along with conversationId, the engine upserts the
+   * assistant message row at stream end so partial replies survive a
+   * disconnect.
+   */
+  assistantMessageId: z.string().min(1).optional(),
 });
 
 /**
@@ -56,7 +63,8 @@ export async function POST(req: Request): Promise<Response> {
       { status: 400 },
     );
   }
-  const { speaker, speakers, history, conversationId } = parsed.data;
+  const { speaker, speakers, history, conversationId, assistantMessageId } =
+    parsed.data;
   const ordinal = history.length + 1;
 
   let turn;
@@ -68,6 +76,7 @@ export async function POST(req: Request): Promise<Response> {
       mode: 'roundtable',
       conversationId,
       ordinal,
+      assistantMessageId,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

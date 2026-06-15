@@ -95,6 +95,7 @@ export function getDb(): Database.Database {
   db.pragma('foreign_keys = ON');
   initSchema(db);
   migrateParticipantsTable(db);
+  migrateMessagesAddIsPartial(db);
   dbInstance = db;
   dbInstancePath = path;
   return db;
@@ -109,6 +110,17 @@ export function getDb(): Database.Database {
  * persona_username) pair, and `left_at` goes away entirely. Idempotent —
  * no-op on databases that were created post-migration.
  */
+/**
+ * Phase 2.2 migration. Add `is_partial INTEGER NOT NULL DEFAULT 0` to
+ * messages on databases that pre-date server-side partial persistence.
+ * Idempotent — no-op once the column exists.
+ */
+function migrateMessagesAddIsPartial(db: Database.Database): void {
+  const cols = db.prepare(`PRAGMA table_info(messages)`).all() as Array<{ name: string }>;
+  if (cols.some((c) => c.name === 'is_partial')) return;
+  db.exec(`ALTER TABLE messages ADD COLUMN is_partial INTEGER NOT NULL DEFAULT 0`);
+}
+
 function migrateParticipantsTable(db: Database.Database): void {
   const cols = db.prepare(`PRAGMA table_info(conversation_participants)`).all() as Array<{
     name: string;
@@ -179,6 +191,7 @@ function initSchema(db: Database.Database): void {
       metadata TEXT,
       ordinal INTEGER NOT NULL,
       created_at TEXT NOT NULL,
+      is_partial INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (id, conversation_id),
       FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );
@@ -460,6 +473,49 @@ export function saveMessages(
         now,
       );
     });
+  });
+  tx();
+}
+
+/**
+ * Phase 2.2: write or update a single assistant message keyed on
+ * (id, conversation_id). Used by the engine to checkpoint the assistant
+ * reply when the stream finishes — including when the client disconnected
+ * mid-stream. `isPartial=true` marks the row so the client (or trace) can
+ * show "this reply was cut off."
+ *
+ * If a later complete save comes through (typically from the client's PUT
+ * after onFinish), it overrides via INSERT OR REPLACE. The composite PK
+ * makes this safe to call from the route and from the client save path
+ * simultaneously.
+ */
+export function upsertMessage(
+  conversationId: string,
+  message: StoredMessage & { ordinal: number; isPartial?: boolean },
+): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const tx = db.transaction(() => {
+    const found = db
+      .prepare(`SELECT 1 FROM conversations WHERE id = ?`)
+      .get(conversationId);
+    if (!found) throw new Error(`Conversation ${conversationId} not found`);
+    db.prepare(
+      `INSERT OR REPLACE INTO messages
+       (id, conversation_id, role, speaker, text, metadata, ordinal, created_at, is_partial)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      message.id,
+      conversationId,
+      message.role,
+      message.speaker,
+      message.text,
+      message.metadata != null ? JSON.stringify(message.metadata) : null,
+      message.ordinal,
+      now,
+      message.isPartial ? 1 : 0,
+    );
+    db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(now, conversationId);
   });
   tx();
 }

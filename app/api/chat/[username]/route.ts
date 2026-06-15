@@ -1,4 +1,5 @@
 import { streamText, type UIMessage } from 'ai';
+import { upsertMessage } from '@/lib/db';
 import { cacheableProviderOptions, modelFor } from '@/lib/llm';
 import { prepareTurn, type HistoryMessage } from '@/lib/turn-engine';
 
@@ -16,8 +17,12 @@ export async function POST(
   { params }: { params: Promise<{ username: string }> },
 ): Promise<Response> {
   const { username } = await params;
-  const body: { messages: UIMessage[]; conversationId?: string } = await req.json();
-  const { messages, conversationId } = body;
+  const body: {
+    messages: UIMessage[];
+    conversationId?: string;
+    assistantMessageId?: string;
+  } = await req.json();
+  const { messages, conversationId, assistantMessageId } = body;
 
   // Convert UIMessage[] → engine's HistoryMessage[]. The engine doesn't need
   // multimodal parts; flatten text parts and drop the rest.
@@ -59,8 +64,30 @@ export async function POST(
     messages: built,
     providerOptions: cacheableProviderOptions(),
     // onFinish gives us the final assembled text so persona.completed can
-    // carry the same `chars` payload as the roundtable path.
-    onFinish: ({ text }) => emit('persona.completed', { chars: text.length }),
+    // carry the same `chars` payload as the roundtable path, AND so Phase
+    // 2.2 can persist the assistant message server-side when the client
+    // supplied an assistantMessageId.
+    onFinish: ({ text }) => {
+      emit('persona.completed', { chars: text.length });
+      if (conversationId && assistantMessageId) {
+        try {
+          upsertMessage(conversationId, {
+            id: assistantMessageId,
+            role: 'assistant',
+            speaker: username,
+            text,
+            metadata:
+              retrievedMeta.length > 0
+                ? { retrievedTweets: retrievedMeta }
+                : null,
+            ordinal,
+            isPartial: false,
+          });
+        } catch (err) {
+          console.error('[chat] upsertMessage failed:', err);
+        }
+      }
+    },
     onError: ({ error }) => {
       const msg = error instanceof Error ? error.message : String(error);
       emit('persona.errored', { message: msg, code: 'upstream' });

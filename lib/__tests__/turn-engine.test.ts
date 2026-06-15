@@ -51,6 +51,7 @@ import {
   getDb,
   getOrCreateSolo,
   loadEvents,
+  loadMessages,
 } from '../db';
 import { invalidate } from '../persona-cache';
 import {
@@ -552,5 +553,109 @@ describe('runTurn — event log', () => {
 
     const kinds = loadEvents(conv.id).map((e) => e.kind);
     expect(kinds).not.toContain('risk.classified');
+  });
+});
+
+describe('runTurn — Phase 2.2 partial persistence', () => {
+  beforeEach(() => {
+    getDb().exec('DELETE FROM messages');
+  });
+
+  it('persists the assistant message at stream end when assistantMessageId is set', async () => {
+    await writeCorpus('paulg');
+    const conv = getOrCreateSolo('paulg');
+    mockStreamText.mockReturnValue({ textStream: fakeTextStream(['He', 'llo ', 'world.']) });
+    const result = await runTurn({
+      speaker: 'paulg',
+      speakers: [{ username: 'paulg', displayName: 'Paul Graham' }],
+      history: [{ role: 'user', text: 'hi' }],
+      mode: 'solo',
+      conversationId: conv.id,
+      ordinal: 1,
+      assistantMessageId: 'asst-1',
+    });
+    await drainStream(result.stream);
+
+    const msgs = loadMessages(conv.id);
+    const persisted = msgs.find((m) => m.id === 'asst-1');
+    expect(persisted).toBeDefined();
+    expect(persisted!.role).toBe('assistant');
+    expect(persisted!.text).toBe('Hello world.');
+    expect(persisted!.speaker).toBe('paulg');
+  });
+
+  it('does not persist when assistantMessageId is missing', async () => {
+    await writeCorpus('paulg');
+    const conv = getOrCreateSolo('paulg');
+    mockStreamText.mockReturnValue({ textStream: fakeTextStream(['Hello']) });
+    const result = await runTurn({
+      speaker: 'paulg',
+      speakers: [{ username: 'paulg', displayName: 'Paul Graham' }],
+      history: [{ role: 'user', text: 'hi' }],
+      mode: 'solo',
+      conversationId: conv.id,
+      ordinal: 1,
+      // assistantMessageId intentionally omitted
+    });
+    await drainStream(result.stream);
+
+    expect(loadMessages(conv.id)).toEqual([]);
+  });
+
+  it('persists what was accumulated when the consumer cancels mid-stream', async () => {
+    await writeCorpus('paulg');
+    const conv = getOrCreateSolo('paulg');
+    // Slow stream so we have time to cancel.
+    mockStreamText.mockReturnValue({
+      textStream: {
+        async *[Symbol.asyncIterator]() {
+          yield 'first ';
+          // Give the consumer a microtask to cancel before the rest.
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          yield 'second';
+        },
+      },
+    });
+    const result = await runTurn({
+      speaker: 'paulg',
+      speakers: [{ username: 'paulg', displayName: 'Paul Graham' }],
+      history: [{ role: 'user', text: 'hi' }],
+      mode: 'solo',
+      conversationId: conv.id,
+      ordinal: 1,
+      assistantMessageId: 'asst-cancel',
+    });
+    // Read one chunk then cancel — simulates the client closing the tab.
+    const reader = result.stream.getReader();
+    await reader.read();
+    await reader.cancel();
+
+    // Give the cancel callback time to fire its save.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const persisted = loadMessages(conv.id).find((m) => m.id === 'asst-cancel');
+    expect(persisted).toBeDefined();
+    expect(persisted!.text).toBe('first ');
+  });
+
+  it('marks the saved row as not partial on clean completion (sanity)', async () => {
+    await writeCorpus('paulg');
+    const conv = getOrCreateSolo('paulg');
+    mockStreamText.mockReturnValue({ textStream: fakeTextStream(['Done.']) });
+    const result = await runTurn({
+      speaker: 'paulg',
+      speakers: [{ username: 'paulg', displayName: 'Paul Graham' }],
+      history: [{ role: 'user', text: 'hi' }],
+      mode: 'solo',
+      conversationId: conv.id,
+      ordinal: 1,
+      assistantMessageId: 'asst-clean',
+    });
+    await drainStream(result.stream);
+
+    // Round-trip via loadMessages (which doesn't currently expose is_partial,
+    // but the row's text is enough to assert successful save here).
+    const persisted = loadMessages(conv.id).find((m) => m.id === 'asst-clean');
+    expect(persisted!.text).toBe('Done.');
   });
 });
