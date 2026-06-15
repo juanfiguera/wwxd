@@ -86,6 +86,79 @@ type RetrievalHealth = {
   hitRate: number;
 };
 
+type DayBucket = {
+  day: string;
+  turns: number;
+  spoke: number;
+  passed: number;
+  errored: number;
+  totalChars: number;
+};
+
+function fetchByDay(days: number): DayBucket[] {
+  const db = getDb();
+  // Last `days` UTC days, oldest first. SQLite's date() coerces our
+  // ISO8601 created_at strings to YYYY-MM-DD which is exactly the bucket
+  // key we want.
+  const rows = db
+    .prepare(
+      `SELECT date(created_at) AS day, kind, COUNT(*) AS n,
+              COALESCE(SUM(CAST(json_extract(payload, '$.chars') AS INTEGER)), 0) AS chars
+       FROM conversation_events
+       WHERE kind IN ('persona.started', 'gate.spoke', 'gate.passed',
+                      'persona.errored', 'persona.completed')
+         AND date(created_at) >= date('now', '-' || ? || ' days')
+       GROUP BY day, kind
+       ORDER BY day ASC`,
+    )
+    .all(days - 1) as Array<{
+    day: string;
+    kind: string;
+    n: number;
+    chars: number;
+  }>;
+  const byDay = new Map<string, DayBucket>();
+  for (const r of rows) {
+    let b = byDay.get(r.day);
+    if (!b) {
+      b = {
+        day: r.day,
+        turns: 0,
+        spoke: 0,
+        passed: 0,
+        errored: 0,
+        totalChars: 0,
+      };
+      byDay.set(r.day, b);
+    }
+    if (r.kind === 'persona.started') b.turns = r.n;
+    else if (r.kind === 'gate.spoke') b.spoke = r.n;
+    else if (r.kind === 'gate.passed') b.passed = r.n;
+    else if (r.kind === 'persona.errored') b.errored = r.n;
+    else if (r.kind === 'persona.completed') b.totalChars = r.chars;
+  }
+  // Pad with empty buckets so the chart always shows the full window —
+  // gives "no activity for 3 days" the visual weight it deserves.
+  const out: DayBucket[] = [];
+  const today = new Date();
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    out.push(
+      byDay.get(key) ?? {
+        day: key,
+        turns: 0,
+        spoke: 0,
+        passed: 0,
+        errored: 0,
+        totalChars: 0,
+      },
+    );
+  }
+  return out;
+}
+
 function fetchOverall(): OverallStats {
   const db = getDb();
   const counts = db
@@ -267,6 +340,8 @@ export default async function AggregatesPage() {
   const topConvs = fetchTopConversations(10);
   const grounded = personas.filter((p) => p.mode === 'grounded');
   const retrieval = fetchRetrievalHealth(grounded);
+  const byDay = fetchByDay(14);
+  const maxDayTurns = byDay.reduce((m, b) => Math.max(m, b.turns), 0);
 
   const overallSpeakOrPass = overall.totalSpoke + overall.totalPassed;
   const overallPassRate =
@@ -337,6 +412,66 @@ export default async function AggregatesPage() {
                   hint={overall.totalErrored === 0 ? 'clean' : 'check trace pages'}
                 />
               </div>
+            </section>
+
+            {/* Time series — last 14 days */}
+            <section className="mb-10">
+              <h2 className="mb-1 font-display text-base font-extrabold tracking-tight text-[var(--ink)]">
+                Last 14 days
+              </h2>
+              <p className="mb-3 text-xs text-[var(--ink-soft)]">
+                Daily volume of persona turns. Bar height is total turns for the
+                day; the green segment is gate-passed (didn&apos;t need to
+                speak), red is errored. Watching this over a week tells you
+                whether the engine&apos;s usage and error rate are healthy.
+              </p>
+              {byDay.length === 0 || maxDayTurns === 0 ? (
+                <p className="rounded-[var(--r-lg)] border border-dashed border-[var(--line)] bg-white p-3 text-xs text-[var(--ink-soft)]">
+                  No turns in the last 14 days.
+                </p>
+              ) : (
+                <div className="rounded-[var(--r-lg)] border border-[var(--line)] bg-white p-4 shadow-[var(--shadow-sm)]">
+                  <div className="flex h-32 items-end gap-1">
+                    {byDay.map((b) => {
+                      const CHART_HEIGHT = 128;
+                      const barH = Math.round((b.turns / maxDayTurns) * CHART_HEIGHT);
+                      const erroredH =
+                        b.turns === 0 ? 0 : Math.round((b.errored / b.turns) * barH);
+                      const passedH =
+                        b.turns === 0 ? 0 : Math.round((b.passed / b.turns) * barH);
+                      return (
+                        <div
+                          key={b.day}
+                          className="group/bar relative flex flex-1 items-end"
+                          title={`${b.day} · ${b.turns} turn${b.turns === 1 ? '' : 's'} · ${b.passed} passed · ${b.errored} errored · ${numberWithSep(b.totalChars)} chars`}
+                        >
+                          <div
+                            className="relative w-full rounded-t-sm bg-[var(--ink)] opacity-80 transition group-hover/bar:opacity-100"
+                            style={{ height: `${barH}px` }}
+                          >
+                            {erroredH > 0 && (
+                              <div
+                                className="absolute inset-x-0 top-0 rounded-t-sm bg-red-600"
+                                style={{ height: `${erroredH}px` }}
+                              />
+                            )}
+                            {passedH > 0 && erroredH === 0 && (
+                              <div
+                                className="absolute inset-x-0 top-0 rounded-t-sm bg-amber-600"
+                                style={{ height: `${passedH}px` }}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2 flex justify-between text-[10px] font-mono text-[var(--ink-faint)]">
+                    <span>{byDay[0]?.day.slice(5)}</span>
+                    <span>{byDay[byDay.length - 1]?.day.slice(5)}</span>
+                  </div>
+                </div>
+              )}
             </section>
 
             {/* Persona scorecard */}
