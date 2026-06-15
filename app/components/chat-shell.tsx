@@ -73,9 +73,6 @@ export function ChatShell({
         </button>
         <div className="flex items-center gap-2">
           <BrandMark size={22} />
-          <span className="font-display text-[16px] font-extrabold tracking-tight text-[var(--ink)]">
-            wwxd
-          </span>
         </div>
         {/* Spacer to keep brand centered */}
         <span className="h-9 w-9" />

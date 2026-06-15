@@ -126,7 +126,7 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
               {hasHistory && (
                 <button
                   onClick={clear}
-                  className="underline-offset-2 hover:text-[var(--ink)] hover:underline"
+                  className="hidden underline-offset-2 hover:text-[var(--ink)] hover:underline md:inline"
                 >
                   clear history
                 </button>
