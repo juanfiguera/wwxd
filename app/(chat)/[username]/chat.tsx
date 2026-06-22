@@ -247,24 +247,26 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
               .join('');
             if (m.role === 'user') {
               return (
-                <div key={m.id} className="group/msg flex flex-col items-end">
-                  <div
-                    className="max-w-[74%] whitespace-pre-wrap text-[15px] font-medium leading-snug text-white"
-                    style={{
-                      background: 'var(--ink)',
-                      padding: '12px 17px',
-                      borderRadius: '20px 20px 7px 20px',
-                      boxShadow: '0 8px 18px rgba(20,18,10,0.14)',
-                    }}
-                  >
-                    {text}
+                <div key={m.id} className="group/msg flex justify-end">
+                  <div className="flex max-w-[74%] flex-col items-start">
+                    <div
+                      className="whitespace-pre-wrap text-[15px] font-medium leading-snug text-white"
+                      style={{
+                        background: 'var(--ink)',
+                        padding: '12px 17px',
+                        borderRadius: '20px 20px 7px 20px',
+                        boxShadow: '0 8px 18px rgba(20,18,10,0.14)',
+                      }}
+                    >
+                      {text}
+                    </div>
+                    <CopyButton
+                      getText={() => text}
+                      title="Copy message"
+                      iconSize={13}
+                      className="mt-1.5 flex h-7 w-7 items-center justify-center rounded-full text-[var(--ink-faint)] transition hover:bg-white hover:text-[var(--ink)] hover:shadow-[var(--shadow-sm)]"
+                    />
                   </div>
-                  <CopyButton
-                    getText={() => text}
-                    title="Copy message"
-                    iconSize={13}
-                    className="mt-1.5 flex h-7 w-7 items-center justify-center self-start rounded-full text-[var(--ink-faint)] transition hover:bg-white hover:text-[var(--ink)] hover:shadow-[var(--shadow-sm)]"
-                  />
                 </div>
               );
             }
