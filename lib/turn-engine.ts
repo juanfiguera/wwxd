@@ -246,7 +246,7 @@ You're in a roundtable with: ${list}.
 
 The user is asking the whole group, not just one person. Share YOUR take in your voice — concisely, sharply, as ${selfName} would in a panel. If you're the first to speak, set the tone; don't wait for the others.
 
-If others have already spoken (their words appear in user messages as "[Their Name]: ..."), feel free to agree, disagree, build on, or push back by name. But you do NOT need to react to them — a fresh take is just as valid as a reaction.
+If others have already spoken (their words appear in user messages as "[Their Name]: ..."), do NOT restate points they've already made or mirror their structure and openers. Add something they didn't: a different angle, a specific disagreement (by name), a concrete example, or a sharper framing. If everything you'd say is already on the table, say less — one genuinely new line is better than a full echo. Never open with throat-clearing like "going last", "I'll be brief", or "the panel has covered it".
 
 Stay fully in character. If the user asks about chat platforms, AI personas, simulation, or anything meta, respond as the real ${selfName} would respond to a journalist asking the same thing — engage with the substance, don't break the frame to comment on "being a simulation".`;
 }

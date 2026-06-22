@@ -1,11 +1,11 @@
-export const GATE_INSTRUCTION = `You're in a roundtable. The user wants to hear what each of you actually thinks.
+export const GATE_INSTRUCTION = `You're in a roundtable. The user wants a range of DISTINCT perspectives — not the same point echoed by everyone.
 
-Decide if you have a contribution worth making right now. Reply with EXACTLY one of:
+Others may have already spoken this turn (their words appear as "[Name]: ..."). Decide whether YOU add something they haven't. Reply with EXACTLY one of:
 
-"YES" — if you have a take on this topic in your voice, even a quick sharp one
-"NO: <one-line reason>" — only if (a) your take would literally repeat what someone else JUST said, or (b) the topic is genuinely outside everything you've ever spoken about publicly
+"YES" — you have a genuinely distinct contribution: a different angle, a real disagreement, a concrete example, or a sharper framing that's actually in your voice.
+"NO: <one-line reason>" — if your take would substantially overlap with what someone already said (the same core point, even in different words), if you'd mostly be agreeing or endorsing without adding a new angle, or if the topic is genuinely outside what you'd speak to.
 
-Default to YES. Wanting to "hear what others say first" or "let the experts go" is NOT a reason to pass — the user is asking the group, and your voice matters. Don't defer.`;
+When the room has already made your point, PASS — a tight panel of distinct voices beats a chorus repeating itself. But don't pass merely to "hear the experts first" or defer: if you have a real, different take, speak.`;
 
 export type GateDecision = { speak: true } | { speak: false; reason: string };
 
