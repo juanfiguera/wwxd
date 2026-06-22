@@ -9,6 +9,7 @@ import { AccentTheme } from '@/app/components/accent-theme';
 import { AIBadge } from '@/app/components/ai-badge';
 import { ChatInput } from '@/app/components/chat-input';
 import { CitedBadge } from '@/app/components/cited-badge';
+import { CopyButton } from '@/app/components/copy-button';
 import { ImpressionCard } from '@/app/components/impression-card';
 import { PersonaAvatar } from '@/app/components/persona-avatar';
 import { PullProgress } from '@/app/components/pull-progress';
@@ -24,6 +25,7 @@ import {
   type RetrievedTweetMeta,
 } from '@/app/components/sources-panel';
 import { personaStyle, tintHex } from '@/lib/persona-styling';
+import { buildSnapshot, snapshotToPlainText } from '@/lib/share';
 
 type ChatMessageMetadata = { retrievedTweets?: RetrievedTweetMeta[] } | undefined;
 
@@ -86,6 +88,15 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
 
   const isBusy = status === 'submitted' || status === 'streaming';
 
+  // Flattened messages for share/copy. Empty turns (e.g. a gate-passed
+  // assistant slot) are dropped so they don't show up as blank lines.
+  const shareMessages = messages
+    .map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      text: m.parts.map((p) => (p.type === 'text' ? p.text : '')).join(''),
+    }))
+    .filter((m) => m.text.trim().length > 0);
+
   function onSubmit(e?: React.FormEvent) {
     e?.preventDefault();
     const text = input.trim();
@@ -121,15 +132,26 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
               {mode !== 'prior-only' && <CitedBadge tone={style.color} />}
             </h1>
             <div className="flex shrink-0 items-center gap-3 text-xs text-[var(--ink-soft)]">
+              {shareMessages.length > 0 && (
+                <CopyButton
+                  getText={() =>
+                    snapshotToPlainText(
+                      buildSnapshot({
+                        kind: 'solo',
+                        personas: [{ username, displayName }],
+                        messages: shareMessages,
+                      }),
+                    )
+                  }
+                  title="Copy whole chat"
+                  label="copy chat"
+                  className="hidden items-center gap-1 underline-offset-2 hover:text-[var(--ink)] hover:underline md:inline-flex"
+                />
+              )}
               <ShareButton
                 kind="solo"
                 personas={[{ username, displayName }]}
-                messages={messages.map((m) => ({
-                  role: m.role as 'user' | 'assistant',
-                  text: m.parts
-                    .map((p) => (p.type === 'text' ? p.text : ''))
-                    .join(''),
-                }))}
+                messages={shareMessages}
                 accentColor={style.color}
               />
               {hasHistory && (
@@ -225,7 +247,7 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
               .join('');
             if (m.role === 'user') {
               return (
-                <div key={m.id} className="flex justify-end">
+                <div key={m.id} className="group/msg flex flex-col items-end">
                   <div
                     className="max-w-[74%] whitespace-pre-wrap text-[15px] font-medium leading-snug text-white"
                     style={{
@@ -237,11 +259,20 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
                   >
                     {text}
                   </div>
+                  <CopyButton
+                    getText={() => text}
+                    title="Copy message"
+                    iconSize={13}
+                    className="mt-1.5 flex h-7 w-7 items-center justify-center self-start rounded-full text-[var(--ink-faint)] transition hover:bg-white hover:text-[var(--ink)] hover:shadow-[var(--shadow-sm)]"
+                  />
                 </div>
               );
             }
             return (
-              <div key={m.id} className="flex max-w-[92%] items-start gap-3">
+              <div
+                key={m.id}
+                className="group/msg flex max-w-[92%] items-start gap-3"
+              >
                 <span
                   className="flex shrink-0 items-end justify-center overflow-hidden rounded-full"
                   style={{ width: 40, height: 40, background: avatarBg }}
@@ -283,6 +314,12 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
                       citedIds={extractCitedIds(text)}
                     />
                   </div>
+                  <CopyButton
+                    getText={() => text}
+                    title="Copy message"
+                    iconSize={13}
+                    className="mt-1.5 flex h-7 w-7 items-center justify-center self-start rounded-full text-[var(--ink-faint)] transition hover:bg-white hover:text-[var(--ink)] hover:shadow-[var(--shadow-sm)]"
+                  />
                 </div>
               </div>
             );

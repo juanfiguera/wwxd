@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import useSWR from 'swr';
 import { AIBadge } from '@/app/components/ai-badge';
+import { CopyButton } from '@/app/components/copy-button';
 import { ImpressionCard } from '@/app/components/impression-card';
 import { PersonaAvatar } from '@/app/components/persona-avatar';
 import { ShareButton } from '@/app/components/share-button';
@@ -25,6 +26,7 @@ import {
   type RetrievedTweetMeta,
 } from '@/app/components/sources-panel';
 import { personaStyle, tintHex } from '@/lib/persona-styling';
+import { buildSnapshot, snapshotToPlainText } from '@/lib/share';
 import type { PersonaSummary } from './compare';
 import {
   rtToStored,
@@ -416,6 +418,16 @@ export function RoundtableView({
 
   const hasHistory = messages.length > 0;
 
+  // Flattened messages for share/copy. Drop empty turns (streaming
+  // placeholders, gate-passed slots) so they don't render as blank lines.
+  const shareMessages = messages
+    .map((m) => ({
+      role: m.role,
+      speaker: m.speaker ?? null,
+      text: m.text,
+    }))
+    .filter((m) => m.text.trim().length > 0);
+
   const streamingStyle = streamingFor ? personaStyle(streamingFor) : null;
 
   return (
@@ -425,6 +437,28 @@ export function RoundtableView({
           Round-robin: each turn, every persona speaks in order and can react to the others by name.
         </span>
         <div className="flex shrink-0 items-center gap-2">
+          {shareMessages.length > 0 && (
+            <CopyButton
+              getText={() =>
+                snapshotToPlainText(
+                  buildSnapshot({
+                    kind: 'roundtable',
+                    title:
+                      groupName ??
+                      `Roundtable: ${personas.map((p) => p.displayName).join(', ')}`,
+                    personas: personas.map((p) => ({
+                      username: p.username,
+                      displayName: p.displayName,
+                    })),
+                    messages: shareMessages,
+                  }),
+                )
+              }
+              title="Copy whole roundtable"
+              label="copy"
+              className="hidden items-center gap-1 rounded-full px-2 py-1 text-[var(--ink-soft)] hover:bg-[var(--paper-2)] hover:text-[var(--ink)] md:inline-flex"
+            />
+          )}
           <ShareButton
             kind="roundtable"
             title={
@@ -435,11 +469,7 @@ export function RoundtableView({
               username: p.username,
               displayName: p.displayName,
             }))}
-            messages={messages.map((m) => ({
-              role: m.role,
-              speaker: m.speaker ?? null,
-              text: m.text,
-            }))}
+            messages={shareMessages}
           />
           {conversationId && (
             <a
@@ -507,7 +537,7 @@ export function RoundtableView({
             const speakerName = m.speaker ? speakerDisplay.get(m.speaker) ?? m.speaker : '';
             if (m.role === 'user') {
               return (
-                <div key={m.id} className="flex justify-end">
+                <div key={m.id} className="group/msg flex flex-col items-end">
                   <div
                     className="max-w-[74%] whitespace-pre-wrap text-[15px] font-medium leading-snug text-white"
                     style={{
@@ -519,6 +549,12 @@ export function RoundtableView({
                   >
                     {m.text}
                   </div>
+                  <CopyButton
+                    getText={() => m.text}
+                    title="Copy message"
+                    iconSize={13}
+                    className="mt-1.5 flex h-7 w-7 items-center justify-center self-start rounded-full text-[var(--ink-faint)] transition hover:bg-white hover:text-[var(--ink)] hover:shadow-[var(--shadow-sm)]"
+                  />
                 </div>
               );
             }
@@ -553,7 +589,10 @@ export function RoundtableView({
               );
             }
             return (
-              <div key={m.id} className="wwxd-pop flex max-w-[92%] items-start gap-3">
+              <div
+                key={m.id}
+                className="wwxd-pop group/msg flex max-w-[92%] items-start gap-3"
+              >
                 {s && (
                   <span
                     className="flex h-10 w-10 shrink-0 items-end justify-center overflow-hidden rounded-full"
@@ -606,6 +645,14 @@ export function RoundtableView({
                       </span>
                     )}
                   </div>
+                  {m.text && (
+                    <CopyButton
+                      getText={() => m.text}
+                      title="Copy message"
+                      iconSize={13}
+                      className="mt-1.5 flex h-7 w-7 items-center justify-center self-start rounded-full text-[var(--ink-faint)] transition hover:bg-white hover:text-[var(--ink)] hover:shadow-[var(--shadow-sm)]"
+                    />
+                  )}
                 </div>
               </div>
             );
