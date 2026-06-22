@@ -7,12 +7,15 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AccentTheme } from '@/app/components/accent-theme';
 import { AIBadge } from '@/app/components/ai-badge';
+import { ChatInput } from '@/app/components/chat-input';
 import { CitedBadge } from '@/app/components/cited-badge';
 import { ImpressionCard } from '@/app/components/impression-card';
 import { PersonaAvatar } from '@/app/components/persona-avatar';
+import { PullProgress } from '@/app/components/pull-progress';
 import { RelativeTime } from '@/app/components/relative-time';
 import { ShareButton } from '@/app/components/share-button';
 import { useChatHistory } from '@/app/components/use-chat-history';
+import { usePullJob } from '@/app/components/use-pull-job';
 import { useStickyScroll } from '@/app/components/use-sticky-scroll';
 import {
   SourcesPanel,
@@ -65,8 +68,14 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
   conversationIdRef.current = conversationId;
   saveRef.current = saveAfterFinish;
   const [input, setInput] = useState('');
+  // Deep historical tweet pull, triggered from the header. Same job the sidebar
+  // rail runs; on completion usePullJob calls router.refresh(), which re-runs
+  // the server page and updates tweetCount / fetchedAt without dropping the
+  // in-flight chat state.
+  const { status: pullStatus, start: startPull, reset: resetPull } = usePullJob();
+  const isPulling = pullStatus.state === 'running';
   const { ref: scrollRef, pinned, scrollToBottom, ping } = useStickyScroll<HTMLDivElement>();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const style = personaStyle(username);
   const avatarBg = tintHex(style.color, 0.16);
@@ -77,8 +86,8 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
 
   const isBusy = status === 'submitted' || status === 'streaming';
 
-  function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function onSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
     const text = input.trim();
     if (!text || isBusy) return;
     sendMessage({ text });
@@ -133,40 +142,77 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
               )}
             </div>
           </div>
-          <p className="mt-0.5 text-xs text-[var(--ink-soft)]">
-            {mode === 'prior-only' ? (
-              <>
-                from memory
-                {fetchedAt ? (
-                  <>
-                    {' · created '}
-                    <RelativeTime iso={fetchedAt} />
-                  </>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <a
-                  href={`https://x.com/${username}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:underline"
-                  style={{ color: style.color }}
+          <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--ink-soft)]">
+            <span className="min-w-0 truncate">
+              {mode === 'prior-only' ? (
+                <>
+                  from memory
+                  {fetchedAt ? (
+                    <>
+                      {' · created '}
+                      <RelativeTime iso={fetchedAt} />
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <a
+                    href={`https://x.com/${username}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:underline"
+                    style={{ color: style.color }}
+                  >
+                    @{username}
+                  </a>
+                  {` · ${tweetCount.toLocaleString()} tweets`}
+                  {fetchedAt ? (
+                    <>
+                      {' · updated '}
+                      <RelativeTime iso={fetchedAt} />
+                    </>
+                  ) : null}
+                </>
+              )}
+            </span>
+            {mode !== 'prior-only' && (
+              <button
+                type="button"
+                onClick={() => startPull(username, { mode: 'deep' })}
+                disabled={isPulling}
+                title={
+                  isPulling
+                    ? 'Loading more tweets…'
+                    : 'Load more tweets (walk back through full history)'
+                }
+                aria-label={`Load more tweets for ${displayName}`}
+                className="flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[var(--ink-faint)] transition hover:bg-[var(--line-2)] hover:text-[var(--ink)] disabled:opacity-50"
+              >
+                <span
+                  className={
+                    isPulling
+                      ? 'inline-block animate-spin text-[12px] leading-none'
+                      : 'inline-block text-[12px] leading-none'
+                  }
                 >
-                  @{username}
-                </a>
-                {` · ${tweetCount.toLocaleString()} tweets`}
-                {fetchedAt ? (
-                  <>
-                    {' · updated '}
-                    <RelativeTime iso={fetchedAt} />
-                  </>
-                ) : null}
-              </>
+                  ↻
+                </span>
+                <span className="font-display text-[11px] font-bold">
+                  {isPulling ? 'Loading…' : 'Load more'}
+                </span>
+              </button>
             )}
-          </p>
+          </div>
         </div>
       </header>
+
+      {pullStatus.state !== 'idle' && (
+        <div className="border-b border-[var(--line)] bg-[var(--paper-2)] px-4 py-3 md:px-6">
+          <div className="mx-auto max-w-[960px]">
+            <PullProgress status={pullStatus} onDismiss={resetPull} />
+          </div>
+        </div>
+      )}
 
       <div className="relative flex-1 overflow-hidden">
         <div ref={scrollRef} className="h-full overflow-y-auto bg-[var(--paper-2)]">
@@ -282,24 +328,26 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
       <div className="bg-gradient-to-b from-transparent to-[var(--paper)] px-3 pb-5 pt-2 md:px-6">
         <form
           onSubmit={onSubmit}
-          className="mx-auto flex max-w-[960px] items-center gap-2 rounded-full border border-[var(--line)] bg-white px-2 py-2 shadow-[var(--shadow-sm)] transition-[border-color,box-shadow]"
+          className="mx-auto flex max-w-[960px] items-center gap-2 rounded-[28px] border border-[var(--line)] bg-white px-2 py-2 shadow-[var(--shadow-sm)] transition-[border-color,box-shadow]"
           style={{
             borderColor: isBusy ? style.color : undefined,
           }}
         >
-          <input
+          <ChatInput
             ref={inputRef}
             autoFocus
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={setInput}
+            onSubmit={onSubmit}
+            disableSubmit={isBusy || !input.trim()}
             placeholder={`Ask ${displayName} anything...`}
-            className="flex-1 bg-transparent px-3 text-[15px] text-[var(--ink)] outline-none placeholder:text-[var(--ink-faint)]"
+            aria-label={`Message ${displayName}`}
           />
           <button
             type="submit"
             disabled={isBusy || !input.trim()}
             aria-label="Send"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition-transform disabled:opacity-50"
+            className="flex h-10 w-10 shrink-0 items-center justify-center self-end rounded-full text-white transition-transform disabled:opacity-50"
             style={{ background: style.color }}
           >
             <svg

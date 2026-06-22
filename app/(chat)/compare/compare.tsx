@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AIBadge } from '@/app/components/ai-badge';
+import { ChatInput } from '@/app/components/chat-input';
 import { CitedBadge } from '@/app/components/cited-badge';
 import { fetchJson } from '@/app/components/fetch-utils';
 import { ImpressionCard } from '@/app/components/impression-card';
@@ -64,7 +65,7 @@ export function Compare({
 
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [input, setInput] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Group naming
   const [nameEditing, setNameEditing] = useState(false);
@@ -239,8 +240,8 @@ export function Compare({
     writeUrl(selectedUsernames, next);
   }
 
-  function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function onSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
     const text = input.trim();
     if (!text || selected.length === 0) return;
     setSubmission({ id: Date.now(), text });
@@ -434,20 +435,22 @@ export function Compare({
       <div className="bg-gradient-to-b from-transparent to-[var(--paper-2)] px-6 pb-5 pt-2">
         <form
           onSubmit={onSubmit}
-          className="mx-auto flex max-w-[960px] items-center gap-2 rounded-full border border-[var(--line)] bg-white px-2 py-2 shadow-[var(--shadow-sm)]"
+          className="mx-auto flex max-w-[960px] items-center gap-2 rounded-[28px] border border-[var(--line)] bg-white px-2 py-2 shadow-[var(--shadow-sm)]"
         >
-          <input
+          <ChatInput
             ref={inputRef}
             autoFocus
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={setInput}
+            onSubmit={onSubmit}
+            disableSubmit={!input.trim() || selected.length === 0}
             placeholder={placeholder}
-            className="flex-1 bg-transparent px-3 text-[15px] text-[var(--ink)] outline-none placeholder:text-[var(--ink-faint)]"
+            aria-label="Message the roundtable"
           />
           <button
             type="submit"
             disabled={!input.trim() || selected.length === 0}
-            className="rounded-full bg-[var(--ink)] px-4 py-2 font-display text-sm font-bold text-white transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-sm)] disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none"
+            className="self-end rounded-full bg-[var(--ink)] px-4 py-2 font-display text-sm font-bold text-white transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-sm)] disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none"
           >
             {submitLabel}
           </button>
