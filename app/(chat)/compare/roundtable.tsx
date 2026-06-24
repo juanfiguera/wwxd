@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import useSWR from 'swr';
 import { AIBadge } from '@/app/components/ai-badge';
 import { CopyButton } from '@/app/components/copy-button';
+import { markdownComponents } from '@/app/components/markdown-components';
 import { ImpressionCard } from '@/app/components/impression-card';
 import { PersonaAvatar } from '@/app/components/persona-avatar';
 import { ShareButton } from '@/app/components/share-button';
@@ -34,6 +35,16 @@ import {
   uid,
   type RoundtableMessage,
 } from './roundtable-message';
+
+/** Fisher-Yates shuffle into a new array; the input is left untouched. */
+function shuffle<T>(items: readonly T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
 
 export type { RoundtableMessage };
 
@@ -190,45 +201,19 @@ export function RoundtableView({
 
       const speakerMeta = personas.map((p) => ({ username: p.username, displayName: p.displayName }));
 
-      // Phase 1.4: run every persona's gate decision in parallel before we
-      // start streaming. The first speaker (and any persona shouldRunGate
-      // would have skipped inline) always returns shouldSpeak=true on the
-      // server side, so the array stays the same length as personas.
-      // If the gates endpoint errors out, fail open: assume every persona
-      // speaks and let the per-persona /api/roundtable call run its own
-      // inline gate as before.
-      let decisions: Array<{ speaker: string; shouldSpeak: boolean; reason: string }> = [];
-      let usePrefetchedGates = false;
-      try {
-        const gatesRes = await fetch('/api/roundtable/gates', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            speakers: speakerMeta,
-            history: working.map((m) => ({
-              role: m.role,
-              text: m.text,
-              speaker: m.speaker,
-            })),
-            ...(conversationId ? { conversationId } : {}),
-          }),
-        });
-        if (gatesRes.ok) {
-          const data = (await gatesRes.json()) as {
-            decisions?: typeof decisions;
-          };
-          if (Array.isArray(data.decisions) && data.decisions.length === personas.length) {
-            decisions = data.decisions;
-            usePrefetchedGates = true;
-          }
-        }
-      } catch (err) {
-        console.warn('[roundtable] parallel gate failed, falling back to inline:', err);
-      }
+      // Speak in a fresh random order each turn. With a fixed order the same
+      // personas always led and the same ones always landed in "everything's
+      // been said" cleanup mode — a major driver of convergent replies.
+      // Shuffle a copy so the displayed roster (ParticipantsBar, etc.) stays
+      // in its stable order.
+      const speakingOrder = shuffle(personas);
 
-      for (let i = 0; i < personas.length; i += 1) {
-        const persona = personas[i];
-        const decision = usePrefetchedGates ? decisions[i] : null;
+      // Gating is sequential and inline (handled inside /api/roundtable). Each
+      // persona's gate therefore sees who has already spoken THIS turn and can
+      // pass when its take would only echo the room. A parallel pre-pass can't
+      // do that — at pre-pass time nobody has spoken yet, so it can't catch
+      // within-turn redundancy.
+      for (const persona of speakingOrder) {
         const placeholder: RoundtableMessage = {
           id: uid(),
           role: 'assistant',
@@ -236,19 +221,6 @@ export function RoundtableView({
           speaker: persona.username,
         };
         working = [...working, placeholder];
-
-        // Render the gate-passed result immediately without making a speak
-        // request at all. Saves both an HTTP round-trip and one streamText
-        // call per passing persona.
-        if (decision && !decision.shouldSpeak) {
-          working = working.map((m) =>
-            m.id === placeholder.id
-              ? { ...m, passed: true, passReason: decision.reason || 'no comment' }
-              : m,
-          );
-          setMessages([...working]);
-          continue;
-        }
 
         setMessages([...working]);
         setStreamingFor(persona.username);
@@ -266,7 +238,6 @@ export function RoundtableView({
               ...(conversationId
                 ? { conversationId, assistantMessageId: placeholder.id }
                 : {}),
-              ...(usePrefetchedGates ? { skipGate: true } : {}),
             }),
           });
 
@@ -434,7 +405,7 @@ export function RoundtableView({
     <div className="flex min-h-0 flex-1 flex-col rounded-[var(--r-lg)] border border-[var(--line)] bg-white shadow-[var(--shadow-sm)]">
       <header className="flex items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-2.5 text-xs text-[var(--ink-soft)]">
         <span className="min-w-0 flex-1 truncate">
-          Round-robin: each turn, every persona speaks in order and can react to the others by name.
+          Everyone in the same conversation. Each turn, they speak in order, riffing on each other.
         </span>
         <div className="flex shrink-0 items-center gap-2">
           {shareMessages.length > 0 && (
@@ -525,13 +496,11 @@ export function RoundtableView({
           }))}
         />
         {messages.length === 0 ? (
-          <p className="text-sm text-[var(--ink-soft)]">
-            {personas.length === 0
-              ? 'Pick at least one persona to start the roundtable.'
-              : `Drop a question. ${personas
-                  .map((p) => p.displayName)
-                  .join(', ')} will respond in order, riffing on each other.`}
-          </p>
+          personas.length === 0 ? (
+            <p className="text-sm text-[var(--ink-soft)]">
+              Pick at least one persona to start the roundtable.
+            </p>
+          ) : null
         ) : (
           messages.map((m) => {
             const speakerName = m.speaker ? speakerDisplay.get(m.speaker) ?? m.speaker : '';
@@ -625,7 +594,7 @@ export function RoundtableView({
                   >
                     {m.text ? (
                       <>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                           {renderCitationMarkers(m.text, m.speaker ?? '', m.retrievedTweets ?? [])}
                         </ReactMarkdown>
                         <SourcesPanel
@@ -661,11 +630,15 @@ export function RoundtableView({
           })
         )}
         {streamingFor && (
-          <div
-            className="text-xs italic"
-            style={{ color: streamingStyle?.color ?? 'var(--ink-soft)' }}
-          >
-            {speakerDisplay.get(streamingFor) ?? streamingFor} is typing...
+          <div className="flex items-start gap-3">
+            {/* Spacer matching the avatar so the text aligns with the bubble. */}
+            <span className="w-10 shrink-0" aria-hidden />
+            <div
+              className="text-xs italic"
+              style={{ color: streamingStyle?.color ?? 'var(--ink-soft)' }}
+            >
+              {speakerDisplay.get(streamingFor) ?? streamingFor} is typing...
+            </div>
           </div>
         )}
         {error && (
