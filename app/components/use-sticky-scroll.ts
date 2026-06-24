@@ -50,11 +50,16 @@ export function useStickyScroll<T extends HTMLElement = HTMLDivElement>() {
 
   // Call this whenever the content updates (e.g., new message chunk).
   // Scrolls if pinned, no-op if user is reading above.
+  //
+  // Instant ('auto'), not 'smooth': during streaming a smooth animation lets
+  // scrollTop lag behind the growing scrollHeight, so the scroll handler reads
+  // a large distance-from-bottom and unpins mid-stream — auto-follow then dies.
+  // Snapping instantly keeps us glued to the bottom as tokens arrive.
   const ping = useCallback(() => {
     if (!pinnedRef.current) return;
     const el = ref.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
   }, []);
 
   return { ref, pinned, scrollToBottom, ping };

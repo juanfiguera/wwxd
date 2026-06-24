@@ -10,6 +10,7 @@ import { AIBadge } from '@/app/components/ai-badge';
 import { ChatInput } from '@/app/components/chat-input';
 import { CitedBadge } from '@/app/components/cited-badge';
 import { CopyButton } from '@/app/components/copy-button';
+import { markdownComponents } from '@/app/components/markdown-components';
 import { ImpressionCard } from '@/app/components/impression-card';
 import { PersonaAvatar } from '@/app/components/persona-avatar';
 import { PullProgress } from '@/app/components/pull-progress';
@@ -304,7 +305,7 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
                       boxShadow: '0 2px 8px rgba(20,18,10,0.04)',
                     }}
                   >
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                       {renderCitationMarkers(
                         text,
                         username,
@@ -328,8 +329,12 @@ export function Chat({ username, displayName, tweetCount, fetchedAt, mode }: Cha
           })
         )}
         {isBusy && (
-          <div className="text-xs italic text-[var(--ink-soft)]">
-            {`${displayName} is typing...`}
+          <div className="flex items-start gap-3">
+            {/* Spacer matching the avatar so the text aligns with the bubble. */}
+            <span className="w-10 shrink-0" aria-hidden />
+            <div className="text-xs italic text-[var(--ink-soft)]">
+              {`${displayName} is typing...`}
+            </div>
           </div>
         )}
         {error && (

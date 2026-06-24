@@ -86,7 +86,7 @@ export default async function HomePage() {
             <p className="mt-1 text-sm text-[var(--ink-soft)] leading-relaxed">
               Click a card to talk solo, or tap{' '}
               <span className="rounded-full border border-[var(--line)] bg-white px-2 py-0.5 font-display text-[11px] font-bold text-[var(--ink)]">
-                + group
+                + room
               </span>{' '}
               on each to compare perspectives.
             </p>

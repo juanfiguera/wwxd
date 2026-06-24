@@ -69,7 +69,7 @@ export function GroupsSection({
   return (
     <section className="mb-8">
       <h2 className="mb-3 font-display text-[11.5px] font-bold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
-        Groups
+        Rooms
       </h2>
       <ul className="space-y-2">
         {groups.map((g) => {

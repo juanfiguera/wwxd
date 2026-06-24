@@ -7,6 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AIBadge } from '@/app/components/ai-badge';
 import { CitedBadge } from '@/app/components/cited-badge';
+import { markdownComponents } from '@/app/components/markdown-components';
 import { PersonaAvatar } from '@/app/components/persona-avatar';
 import { RelativeTime } from '@/app/components/relative-time';
 import { useChatHistory } from '@/app/components/use-chat-history';
@@ -214,7 +215,7 @@ export function PersonaColumn({
                       borderRadius: '6px 17px 17px 17px',
                     }}
                   >
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                       {renderCitationMarkers(
                         text,
                         persona.username,

@@ -40,8 +40,8 @@ export function Compare({
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedParam = searchParams.get('personas') ?? '';
-  const modeParam = (searchParams.get('mode') as Mode | null) ?? 'compare';
-  const mode: Mode = modeParam === 'roundtable' ? 'roundtable' : 'compare';
+  const modeParam = (searchParams.get('mode') as Mode | null) ?? 'roundtable';
+  const mode: Mode = modeParam === 'compare' ? 'compare' : 'roundtable';
   // Active roundtable conversation id, if any. Compose URLs (no active
   // conversation yet) leave this null.
   const conversationId = searchParams.get('conversation');
@@ -115,7 +115,7 @@ export function Compare({
     (usernames: string[], nextMode: Mode, opts?: { conversationId?: string | null }) => {
       const params = new URLSearchParams();
       if (usernames.length > 0) params.set('personas', usernames.join(','));
-      if (nextMode !== 'compare') params.set('mode', nextMode);
+      if (nextMode !== 'roundtable') params.set('mode', nextMode);
       if (
         currentGroup &&
         currentGroup.personas.length === usernames.length &&
@@ -165,7 +165,7 @@ export function Compare({
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name }),
-          onErrorMessage: "Couldn't rename this group.",
+          onErrorMessage: "Couldn't rename this room.",
         });
         setNameEditing(false);
         setNameInput('');
@@ -177,14 +177,14 @@ export function Compare({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, personas: selectedUsernames }),
-            onErrorMessage: "Couldn't save this group.",
+            onErrorMessage: "Couldn't save this room.",
           },
         );
         setNameEditing(false);
         setNameInput('');
         const params = new URLSearchParams();
         params.set('personas', selectedUsernames.join(','));
-        if (mode !== 'compare') params.set('mode', mode);
+        if (mode !== 'roundtable') params.set('mode', mode);
         params.set('group', group.id);
         router.replace(`/compare?${params.toString()}`);
         router.refresh();
@@ -262,14 +262,15 @@ export function Compare({
       <header className="flex items-center justify-between gap-3 border-b border-[var(--line)] bg-white/85 px-6 py-3 backdrop-blur">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-2">
-            <h1 className="truncate font-display text-lg font-extrabold tracking-tight text-[var(--ink)]">
-              {mode === 'roundtable' ? 'Roundtable' : 'Compare personas'}
-              {matchedGroup && !nameEditing && (
-                <span className="ml-2 font-normal text-[var(--ink-soft)]">
-                  · {matchedGroup.name}
-                </span>
-              )}
-            </h1>
+            {!nameEditing && (
+              <h1 className="truncate font-display text-lg font-extrabold tracking-tight text-[var(--ink)]">
+                {matchedGroup
+                  ? matchedGroup.name
+                  : mode === 'roundtable'
+                    ? 'Roundtable'
+                    : 'Compare personas'}
+              </h1>
+            )}
             {nameEditing ? (
               <form
                 onSubmit={saveGroupName}
@@ -286,7 +287,7 @@ export function Compare({
                       cancelNaming();
                     }
                   }}
-                  placeholder={matchedGroup ? 'Group name' : 'Name this group'}
+                  placeholder={matchedGroup ? 'Room name' : 'Name this room'}
                   maxLength={60}
                   aria-invalid={nameAlreadyTaken || undefined}
                   className={`rounded-full border bg-white px-2.5 py-1 text-xs text-[var(--ink)] outline-none ${
@@ -314,7 +315,7 @@ export function Compare({
                     id="group-name-hint"
                     className="basis-full text-[11px] text-red-600"
                   >
-                    Already taken by another group.
+                    Already taken by another room.
                   </span>
                 )}
               </form>
@@ -323,7 +324,7 @@ export function Compare({
                 <button
                   type="button"
                   onClick={() => startNaming(matchedGroup.name)}
-                  title="Rename group"
+                  title="Rename room"
                   className="text-[11px] text-[var(--ink-faint)] underline-offset-2 hover:text-[var(--ink)] hover:underline"
                 >
                   rename
@@ -334,16 +335,16 @@ export function Compare({
                   onClick={() => startNaming('')}
                   className="rounded-full border border-dashed border-[var(--ink-faint)] bg-white px-2.5 py-1 font-display text-xs font-bold text-[var(--ink-soft)] hover:border-[var(--ink)] hover:text-[var(--ink)]"
                 >
-                  + save as group
+                  name this room
                 </button>
               )
             ) : null}
           </div>
-          <p className="text-xs text-[var(--ink-soft)]">
-            {mode === 'roundtable'
-              ? 'Everyone in the same conversation. Each turn, they speak in order and can react.'
-              : 'One question, multiple personas, parallel columns.'}
-          </p>
+          {mode !== 'roundtable' && (
+            <p className="text-xs text-[var(--ink-soft)]">
+              One question, multiple personas, parallel columns.
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <div
@@ -351,16 +352,6 @@ export function Compare({
             aria-label="view mode"
             className="flex rounded-full border border-[var(--line)] bg-white p-0.5 font-display text-xs font-bold"
           >
-            <button
-              role="radio"
-              aria-checked={mode === 'compare'}
-              onClick={() => setMode('compare')}
-              className={`rounded-full px-3 py-1.5 transition ${
-                mode === 'compare' ? 'bg-[var(--ink)] text-white' : 'text-[var(--ink-soft)] hover:text-[var(--ink)]'
-              }`}
-            >
-              compare
-            </button>
             <button
               role="radio"
               aria-checked={mode === 'roundtable'}
@@ -372,6 +363,16 @@ export function Compare({
               }`}
             >
               roundtable
+            </button>
+            <button
+              role="radio"
+              aria-checked={mode === 'compare'}
+              onClick={() => setMode('compare')}
+              className={`rounded-full px-3 py-1.5 transition ${
+                mode === 'compare' ? 'bg-[var(--ink)] text-white' : 'text-[var(--ink-soft)] hover:text-[var(--ink)]'
+              }`}
+            >
+              compare
             </button>
           </div>
         </div>

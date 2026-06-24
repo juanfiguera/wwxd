@@ -60,7 +60,7 @@ function PersonaCard({
     e.stopPropagation();
     if (deleting) return;
     const ok = window.confirm(
-      `Delete ${persona.displayName} (@${persona.username})?\n\nThis removes the tweet corpus, embeddings, solo chat history, and removes them from any groups. Roundtable conversations they participated in are kept as a historical record.`,
+      `Delete ${persona.displayName} (@${persona.username})?\n\nThis removes the tweet corpus, embeddings, solo chat history, and removes them from any rooms. Roundtable conversations they participated in are kept as a historical record.`,
     );
     if (!ok) return;
     setDeleting(true);
@@ -221,7 +221,7 @@ function PersonaCard({
                 : 'border border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--ink)] hover:text-[var(--ink)]'
             }`}
           >
-            {isSelected ? '✓ in group' : '+ group'}
+            {isSelected ? '✓ in room' : '+ room'}
           </button>
         </div>
       </div>
@@ -349,7 +349,7 @@ export function PersonaList({ personas }: { personas: PersonaSummary[] }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, personas: selectedUsernames }),
-        onErrorMessage: "Couldn't save this group.",
+        onErrorMessage: "Couldn't save this room.",
       });
       toast.success(`Saved “${name}”.`);
       setSavingGroup(false);
@@ -421,7 +421,7 @@ export function PersonaList({ personas }: { personas: PersonaSummary[] }) {
                   autoFocus
                   value={groupName}
                   onChange={(e) => setGroupName(e.target.value)}
-                  placeholder="group name"
+                  placeholder="room name"
                   className="rounded-full border border-[var(--line)] bg-white px-3 py-1 text-xs text-[var(--ink)] outline-none focus:border-[var(--ink)]"
                   maxLength={60}
                 />
@@ -452,13 +452,13 @@ export function PersonaList({ personas }: { personas: PersonaSummary[] }) {
                   onClick={() => setSavingGroup(true)}
                   className="text-xs text-[var(--ink-soft)] underline-offset-2 hover:text-[var(--ink)] hover:underline"
                 >
-                  + save as group
+                  name this room
                 </button>
                 <Link
                   href={groupHref}
                   className="rounded-full bg-[var(--ink)] px-3 py-1.5 font-display text-xs font-bold text-white transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-sm)]"
                 >
-                  Open group chat →
+                  Open room →
                 </Link>
               </div>
             )}

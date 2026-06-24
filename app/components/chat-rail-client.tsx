@@ -247,7 +247,7 @@ function PersonaRow({
   async function onDelete() {
     if (deleting) return;
     const ok = window.confirm(
-      `Delete ${persona.displayName} (@${persona.username})?\n\nThis removes the tweet corpus, embeddings, solo chat history, and removes them from any groups. Roundtable conversations they participated in are kept as a historical record.`,
+      `Delete ${persona.displayName} (@${persona.username})?\n\nThis removes the tweet corpus, embeddings, solo chat history, and removes them from any rooms. Roundtable conversations they participated in are kept as a historical record.`,
     );
     if (!ok) return;
     setDeleting(true);
