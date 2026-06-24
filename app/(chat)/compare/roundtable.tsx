@@ -80,6 +80,16 @@ export function RoundtableView({
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+  // Tracks the conversation id even while the prop lags. On the first turn of a
+  // fresh room, save() lazily creates the conversation, but the conversationId
+  // prop only catches up later (onConversationCreated -> URL), and the save
+  // closure captured the stale null. Both the immediate save and the final save
+  // of a turn must target the SAME id — thread it through this ref so the final
+  // save reuses the conversation instead of creating a duplicate.
+  const liveConvIdRef = useRef<string | null>(conversationId);
+  useEffect(() => {
+    liveConvIdRef.current = conversationId;
+  }, [conversationId]);
 
   const usernames = useMemo(() => personas.map((p) => p.username), [personas]);
 
@@ -132,8 +142,10 @@ export function RoundtableView({
 
       const wire = msgs.map(rtToStored);
 
-      // Lazy create on first save
-      let id = conversationId;
+      // Lazy create on first save. Resolve via the live ref (not just the
+      // prop) so the final save of this turn reuses the conversation the
+      // immediate save just created, instead of lazily creating a duplicate.
+      let id = liveConvIdRef.current ?? conversationId;
       if (!id) {
         try {
           const createRes = await fetchJson<{ conversation: Conversation }>(
@@ -151,6 +163,7 @@ export function RoundtableView({
             },
           );
           id = createRes.conversation.id;
+          liveConvIdRef.current = id;
           onConversationCreated(id);
         } catch {
           return; // toast already fired
@@ -196,8 +209,10 @@ export function RoundtableView({
       setMessages(working);
       // Persist immediately so the rail's Recent picks up the new conversation
       // the moment the user hits send — they shouldn't have to wait through 4
-      // persona responses to see the row appear.
-      save(working);
+      // persona responses to see the row appear. Awaited so a brand-new room is
+      // fully created (and liveConvIdRef set) before the final save runs, so the
+      // turn lands in ONE conversation rather than spawning a duplicate.
+      await save(working);
 
       const speakerMeta = personas.map((p) => ({ username: p.username, displayName: p.displayName }));
 
