@@ -79,7 +79,7 @@ Make one, click their card, ask them something. That's the whole loop.
 Compare mode looks like this — same prompt, one column per persona, no cross-talk:
 
 <p align="center">
-  <img src=".github/assets/compare-preview.png" alt="Compare mode: Naval, Paul Graham, and Marcus Aurelius each answering 'How do I tell if I am working on the wrong thing?' in their own parallel column, no reactions between them." width="100%" />
+  <img src=".github/assets/compare-preview.png" alt="Compare mode: Naval, Paul Graham, and Seneca each answering 'How do I tell if I am working on the wrong thing?' in their own parallel column, no reactions between them." width="100%" />
 </p>
 
 **Share** a conversation as Markdown, plain text, or a versioned `.wwxd.json` snapshot.
