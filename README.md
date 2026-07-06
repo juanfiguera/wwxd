@@ -27,11 +27,9 @@
 Three commands and you're in.
 
 ```bash
-git clone https://github.com/juanfiguera/wwxd.git
-cd wwxd
-cp .env.example .env.local      # add at least one LLM provider key
-pnpm install
-pnpm dev                         # → http://localhost:3000
+git clone https://github.com/juanfiguera/wwxd.git && cd wwxd
+cp .env.example .env.local && pnpm install   # add at least one LLM provider key
+pnpm dev                                      # → http://localhost:3000
 ```
 
 ## What you get
